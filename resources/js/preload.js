@@ -33,6 +33,8 @@ function getClipboardData (format) {
 }
 
 contextBridge.exposeInMainWorld('apis', {
+  s01: (request) => ipcRenderer.sendSync('s01', request),
+
   doAction: async (arg) => {
     return await ipcRenderer.invoke('main', arg)
   },

@@ -1,0 +1,12 @@
+{
+  "graph": "/private/var/folders/hf/8_zs_3657ks8btp08ncr4c9c0000gn/T/s01-ui-HLo28E/graph",
+  "error": "TimeoutError: page.waitForFunction: Timeout 240000ms exceeded.",
+  "observed": {
+    "events": [],
+    "javascriptDispatches": [],
+    "values": [
+      "x"
+    ]
+  },
+  "errors": []
+}

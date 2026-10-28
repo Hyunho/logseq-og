@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-28",
+  "graph": "bilog2",
+  "runtime": "macOS arm64 packaged Logseq-OG",
+  "timeRecordBlocksRestored": 7,
+  "collapseStatesRestored": 2,
+  "actualEditorSavePassed": true,
+  "temporaryEditRestored": true,
+  "collapseDidNotWriteMarkdown": true,
+  "secondRestartPassed": true,
+  "markdownFilesChecked": 4,
+  "allMarkdownBytesUnchangedAfterRestore": true,
+  "remainingLogbookDrawers": 0,
+  "sqliteQuickCheck": {
+    "identity": "ok",
+    "metadata": "ok"
+  },
+  "timeRecordValuesUnchanged": true,
+  "appReopenedAfterVerification": true
+}

@@ -6,6 +6,8 @@
             [frontend.modules.outliner.core :as outliner-core]
             [frontend.modules.outliner.transaction :as outliner-tx]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
             [frontend.util :as util]
             [frontend.util.drawer :as drawer]
             [frontend.util.property :as property]
@@ -100,11 +102,15 @@
                                     distinct
                                     vec)
                    content (property/remove-properties format content)
-                   kvs (for [key property-ks] [key (or (get properties-text-values key)
+                   owned (when (s01/enabled?)
+                           (apply dissoc (get-in block [:block/app-metadata :properties]) (keys new-properties)))
+                   kvs (for [key property-ks :when (not (contains? owned key))] [key (or (get properties-text-values key)
                                                        (get properties key))])
                    content (property/insert-properties format content kvs)
                    content (property/remove-empty-properties content)
                    block {:block/uuid block-id
+                          :block/app-metadata (update (or (:block/app-metadata block) {}) :properties
+                                                      #(apply dissoc % (keys new-properties)))
                           :block/properties properties
                           :block/properties-order property-ks
                           :block/properties-text-values properties-text-values
@@ -138,3 +144,28 @@
   [block-id key value]
   (let [key (keyword key)]
     (batch-set-block-property! [[block-id key value]])))
+
+(defn batch-set-app-property!
+  "Internal feature writes only. Public property APIs retain authored Markdown semantics."
+  [col]
+  (if-not (s01/enabled?)
+    (batch-set-block-property! col)
+    (outliner-tx/transact!
+     {:outliner-op :save-block}
+     (doseq [[id items] (group-by first col)]
+       (when-let [b (db/pull [:block/uuid (if (string? id) (uuid id) id)])]
+         (if (= :markdown (:block/format b))
+           (outliner-core/save-block! (metadata/set-properties b (map #(subvec (vec %) 1) items)))
+           (batch-set-block-property! items)))))))
+
+(defn set-app-property! [id k value]
+  (batch-set-app-property! [[id (keyword k) value]]))
+
+(defn batch-add-app-property! [ids k value]
+  (batch-set-app-property! (map #(vector % k value) ids)))
+
+(defn batch-remove-app-property! [ids k]
+  (batch-add-app-property! ids k nil))
+
+(defn remove-app-property! [id k]
+  (set-app-property! id k nil))

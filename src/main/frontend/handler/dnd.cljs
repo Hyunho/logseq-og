@@ -6,7 +6,8 @@
             [frontend.modules.outliner.tree :as tree]
             [frontend.modules.outliner.transaction :as outliner-tx]
             [logseq.graph-parser.util.block-ref :as block-ref]
-            [frontend.state :as state]))
+            [frontend.state :as state]
+            [frontend.s01 :as s01]))
 
 (defn move-blocks
   [^js event blocks target-block move-to]
@@ -18,6 +19,11 @@
         current-format (:block/format first-block)
         target-format (:block/format target-block)]
     (cond
+      ;; S01 has document references only; do not create a reference or inject id::.
+      (and alt-key? (s01/enabled?))
+      (state/pub-event! [:notification/show
+                        {:content "이 그래프에서는 블록 참조 대신 문서 링크를 사용하세요." :status :warning}])
+
       ;; alt pressed, make a block-ref
       (and alt-key? (= (count blocks) 1))
       (do

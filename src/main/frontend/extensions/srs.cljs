@@ -20,6 +20,7 @@
             [frontend.handler.editor.property :as editor-property]
             [frontend.modules.shortcut.core :as shortcut]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
             [frontend.template :as template]
             [frontend.ui :as ui]
             [frontend.util :as util]
@@ -107,10 +108,12 @@
 
 (defn- save-block-card-properties!
   [block props]
-  (editor-handler/save-block-if-changed!
-   block
-   (property/insert-properties (:block/format block) (:block/content block) props)
-   {:force? true}))
+  (if (s01/enabled?)
+    (editor-property/batch-set-app-property! (map (fn [[k v]] [(:block/uuid block) k v]) props))
+    (editor-handler/save-block-if-changed!
+     block
+     (property/insert-properties (:block/format block) (:block/content block) props)
+     {:force? true})))
 
 (defn- reset-block-card-properties!
   [block]
@@ -486,7 +489,7 @@
                                    :on-click   (fn []
                                                  (score-and-next-card 1 card card-index finished? phase review-records cb)
                                                  (let [tomorrow (tc/to-string (t/plus (t/today) (t/days 1)))]
-                                                   (editor-property/set-block-property! root-block-id card-next-schedule-property tomorrow)))})
+                                                   (editor-property/set-app-property! root-block-id card-next-schedule-property tomorrow)))})
 
                (btn-with-shortcut {:btn-text (if (util/mobile?) "Hard" (t :flashcards/modal-btn-recall))
                                    :shortcut "t"

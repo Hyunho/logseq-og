@@ -3,6 +3,7 @@
   platforms by delegating to implementations of the fs protocol"
   (:require [cljs-bean.core :as bean]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.fs.nfs :as nfs]
             [frontend.fs.node :as node]
             [frontend.fs.capacitor-fs :as capacitor-fs]
@@ -109,6 +110,7 @@
                   (log/error :file/write-failed {:dir dir
                                                  :path path
                                                  :error error})
+                  (when (s01/enabled? repo) (throw error))
                   ;; Disable this temporarily
                   ;; (js/alert "Current file can't be saved! Please copy its content to your local file system and click the refresh button.")
                   ))))))

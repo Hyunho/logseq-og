@@ -17,6 +17,7 @@
             [frontend.handler.common.developer :as dev-common-handler]
             [frontend.mixins :as mixins]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
             [frontend.ui :as ui]
             [frontend.util :as util]
             [frontend.modules.shortcut.core :as shortcut]
@@ -32,8 +33,8 @@
 (rum/defc custom-context-menu-content
   []
   [:.menu-links-wrapper
-   (ui/menu-background-color #(editor-property/batch-add-block-property! (state/get-selection-block-ids) :background-color %)
-                             #(editor-property/batch-remove-block-property! (state/get-selection-block-ids) :background-color))
+   (ui/menu-background-color #(editor-property/batch-add-app-property! (state/get-selection-block-ids) :background-color %)
+                             #(editor-property/batch-remove-app-property! (state/get-selection-block-ids) :background-color))
 
    (ui/menu-heading #(editor-handler/batch-set-heading! (state/get-selection-block-ids) %)
                     #(editor-handler/batch-set-heading! (state/get-selection-block-ids) true)
@@ -64,14 +65,14 @@
                    (state/set-modal!
                     #(export/export-blocks block-uuids {:whiteboard? false}))))}
     (t :content/copy-export-as))
-   (ui/menu-link
+   (when-not (s01/enabled?) (ui/menu-link
     {:key "copy block refs"
      :on-click editor-handler/copy-block-refs}
-    (t :content/copy-block-ref))
-   (ui/menu-link
+    (t :content/copy-block-ref)))
+   (when-not (s01/enabled?) (ui/menu-link
     {:key "copy block embeds"
      :on-click editor-handler/copy-block-embeds}
-    (t :content/copy-block-emebed))
+    (t :content/copy-block-emebed)))
 
    [:hr.menu-separator]
 
@@ -153,9 +154,9 @@
                                         [:p (t :context-menu/template-exists-warning)]
                                         :error)
                                        (do
-                                         (editor-property/set-block-property! block-id :template title)
+                                         (editor-property/set-app-property! block-id :template title)
                                          (when (false? template-including-parent?)
-                                           (editor-property/set-block-property! block-id :template-including-parent false))
+                                           (editor-property/set-app-property! block-id :template-including-parent false))
                                          (state/hide-custom-context-menu!)))))))]
          [:hr.menu-separator]])
       (ui/menu-link
@@ -171,8 +172,8 @@
     (when-let [block (db/entity [:block/uuid block-id])]
       (let [heading (-> block :block/properties :heading (or false))]
         [:.menu-links-wrapper
-         (ui/menu-background-color #(editor-property/set-block-property! block-id :background-color %)
-                                   #(editor-property/remove-block-property! block-id :background-color))
+         (ui/menu-background-color #(editor-property/set-app-property! block-id :background-color %)
+                                   #(editor-property/remove-app-property! block-id :background-color))
 
          (ui/menu-heading heading
                           #(editor-handler/set-heading! block-id %)
@@ -190,20 +191,20 @@
 
          [:hr.menu-separator]
 
-         (ui/menu-link
+         (when-not (s01/enabled?) (ui/menu-link
           {:key      "Copy block ref"
            :on-click (fn [_e]
                        (editor-handler/copy-block-ref! block-id block-ref/->block-ref))}
-          (t :content/copy-block-ref))
+          (t :content/copy-block-ref)))
 
-         (ui/menu-link
+         (when-not (s01/enabled?) (ui/menu-link
           {:key      "Copy block embed"
            :on-click (fn [_e]
                        (editor-handler/copy-block-ref! block-id #(util/format "{{embed ((%s))}}" %)))}
-          (t :content/copy-block-emebed))
+          (t :content/copy-block-emebed)))
 
          ;; TODO Logseq protocol mobile support
-         (when (util/electron?)
+         (when (and (util/electron?) (not (s01/enabled?)))
            (ui/menu-link
             {:key      "Copy block URL"
              :on-click (fn [_e]

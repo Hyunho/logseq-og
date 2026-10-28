@@ -1,0 +1,81 @@
+{
+  "graph": "/private/var/folders/hf/8_zs_3657ks8btp08ncr4c9c0000gn/T/s01-ui-HLo28E/graph",
+  "error": "TimeoutError: page.waitForFunction: Timeout 240000ms exceeded.",
+  "observed": {
+    "events": [
+      {
+        "name": "compositionstart",
+        "data": "",
+        "trusted": true,
+        "value": "ㅎㄴ"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "ㅎ",
+        "trusted": true,
+        "value": "ㅎㄴ"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "하",
+        "trusted": true,
+        "value": "ㅎㄴㅎ"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "한",
+        "trusted": true,
+        "value": "ㅎㄴ하"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "한",
+        "trusted": true,
+        "value": "ㅎㄴ한"
+      },
+      {
+        "name": "compositionend",
+        "data": "한",
+        "trusted": false,
+        "value": "ㅎㄴ한"
+      },
+      {
+        "name": "compositionstart",
+        "data": "",
+        "trusted": true,
+        "value": "ㅎㄴ한"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "ㄱ",
+        "trusted": true,
+        "value": "ㅎㄴ한"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "그",
+        "trusted": true,
+        "value": "ㅎㄴ한ㄱ"
+      },
+      {
+        "name": "compositionupdate",
+        "data": "글",
+        "trusted": true,
+        "value": "ㅎㄴ한그"
+      },
+      {
+        "name": "compositionend",
+        "data": "글",
+        "trusted": false,
+        "value": "ㅎㄴ한글"
+      }
+    ],
+    "javascriptDispatches": [],
+    "values": [
+      "ㅎㄴ한글",
+      "",
+      "x"
+    ]
+  },
+  "errors": []
+}

@@ -7,6 +7,7 @@
             [clojure.string :as string]
             [clojure.walk :as walk]
             [frontend.date :as date]
+            [frontend.s01 :as s01]
             [frontend.db.model :as model]
             [frontend.db.query-react :as query-react]
             [logseq.graph-parser.util.db :as db-util]
@@ -351,7 +352,8 @@
 (defn- build-page
   [e]
   (let [page-name (page-ref/get-page-name! (str (first (rest e))))
-        page-name (util/page-name-sanity-lc page-name)]
+        page-name (util/page-name-sanity-lc
+                    (or (when (s01/enabled?) (:page-name (s01/lookup-document page-name))) page-name))]
     {:query (list 'page '?b page-name)
      :rules [:page]}))
 
@@ -365,8 +367,9 @@
 
 (defn- build-page-ref
   [e]
-  (let [page-name (-> (page-ref/get-page-name! e)
-                      (util/page-name-sanity-lc))]
+  (let [target (page-ref/get-page-name! e)
+        page-name (util/page-name-sanity-lc
+                    (or (when (s01/enabled?) (:page-name (s01/lookup-document target))) target))]
     {:query (list 'page-ref '?b page-name)
      :rules [:page-ref]}))
 

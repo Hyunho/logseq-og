@@ -4,6 +4,8 @@
             [clojure.string :as string]
             [electron.ipc :as ipc]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.s01-state :as s01-state]
             [frontend.db :as db]
             [frontend.fs.protocol :as protocol]
             [frontend.state :as state]
@@ -114,7 +116,30 @@
                   (fn [_e] :not-found))
             parent-dir (path/parent fpath)
             _ (protocol/mkdir-recur! this parent-dir)]
-      (write-file-impl! repo dir path content opts stat)))
+      (if (and (s01/enabled? repo) (s01/document? path))
+        (let [ids (:s01-identity opts)
+              current-page (some-> (db/get-file-page-id path) db/pull)
+              stale? (and ids (not= (:pageId ids) (str (:block/uuid current-page))))
+              result (if stale? {:status "superseded"}
+                       (s01/call! repo "save"
+                       {:relative path :content content
+                        :expected (if (contains? opts :old-content)
+                                    (:old-content opts)
+                                    (db/get-file repo path))
+                        :ids ids}))]
+          (cond
+            (= "superseded" (:status result)) result
+            (= "saved" (:status result))
+            (do (when-let [baseline (:s01-state opts)]
+                  (s01-state/saved! repo (:db/id current-page) baseline))
+                (db/set-file-content! repo path content)
+                (db/set-file-last-modified-at! repo path (:mtime result))
+                (when-let [ok (:ok-handler opts)] (ok repo path result))
+                result)
+            :else
+            (do (state/pub-event! [:s01/conflict repo (:id (:conflict result))])
+                (throw (js/Error. "문서 충돌: 두 버전을 보존했습니다. 버전을 선택해 주세요.")))))
+        (write-file-impl! repo dir path content opts stat))))
 
   (rename! [_this _repo old-path new-path]
     (ipc/ipc "rename" old-path new-path))

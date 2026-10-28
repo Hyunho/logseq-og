@@ -1,5 +1,6 @@
 /e2e-dump
 /target
+/build/
 /classes
 /checkouts
 profiles.clj

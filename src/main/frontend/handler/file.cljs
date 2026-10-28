@@ -2,6 +2,7 @@
   "Provides util handler fns for files"
   (:refer-clojure :exclude [load-file])
   (:require [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.db :as db]
             [frontend.fs :as fs]
             [frontend.fs.nfs :as nfs]
@@ -112,8 +113,8 @@
   [repo path content write-file-options]
   (let [original-content (db/get-file repo path)
         path-dir (config/get-repo-dir repo)
-        write-file-options' (merge write-file-options
-                                   (when original-content {:old-content original-content}))]
+        write-file-options' (merge (when original-content {:old-content original-content})
+                                   write-file-options)]
     (fs/write-plain-text-file! repo path-dir path content write-file-options')))
 
 (defn alter-global-file
@@ -149,6 +150,7 @@
                            from-disk? false
                            skip-compare? false}}]
   (let [path (gp-util/path-normalize path)
+        original-content (db/get-file repo path)
         config-file? (= path "logseq/config.edn")
         _ (when config-file?
             (detect-deprecations path content))
@@ -173,7 +175,10 @@
                                                  (when (some? verbose) {:verbose verbose}))))
                      (db/set-file-content! repo path content opts))]
         (-> (p/let [_ (when-not from-disk?
-                        (write-file-aux! repo path content {:skip-compare? skip-compare?}))]
+                        (write-file-aux! repo path content
+                          (cond-> {:skip-compare? skip-compare?}
+                            (and (s01/enabled? repo) (s01/document? path))
+                            (assoc :old-content original-content))))]
               (when re-render-root? (ui-handler/re-render-root!))
 
               (cond
@@ -201,7 +206,7 @@
                                      :re-render-root? false}))
 
 (defn alter-files-handler!
-  [repo files {:keys [finish-handler]} file->content]
+  [repo files {:keys [finish-handler s01-identity s01-state]} file->content]
   (let [write-file-f (fn [[path content]]
                        (when path
                          (let [path (gp-util/path-normalize path)
@@ -210,7 +215,8 @@
                                           (util/electron?)
                                           (nfs/check-directory-permission! repo))]
                                  (fs/write-plain-text-file! repo (config/get-repo-dir repo) path content
-                                                            {:old-content original-content}))
+                                                            (cond-> {:s01-identity s01-identity :s01-state s01-state}
+                                                              (contains? file->content path) (assoc :old-content original-content))))
                                (p/catch (fn [error]
                                           (state/pub-event! [:notification/show
                                                              {:content (str "Failed to save the file " path ". Error: "

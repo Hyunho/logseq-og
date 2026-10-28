@@ -6,6 +6,9 @@
             [frontend.handler.file :as file-handler]
             [frontend.handler.repo :as repo-handler]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
+            [frontend.modules.outliner.tree :as tree]
             [frontend.date :as date]
             [frontend.config :as config]
             [clojure.string :as string]
@@ -45,16 +48,33 @@
                                          title
                                          ".md")]
                            {:file/path path
-                            :file/content text}))))
+                            :file/content text
+                            :app-properties (:app-properties file)}))))
                 files)
-        files (remove nil? files)]
-    (repo-handler/parse-files-and-load-to-db! repo files nil)
+        files (vec (remove nil? files))
+        old-contents (when (s01/enabled? repo)
+                       (into {} (map (fn [{:file/keys [path]}]
+                                       [path (:content (s01/call! repo "read" {:relative path}))]) files)))]
+    (async/go
+      (async/<! (repo-handler/parse-files-and-load-to-db! repo files nil))
+    (when (s01/enabled? repo)
+      (doseq [{:file/keys [path] :keys [app-properties]} files :when (seq app-properties)]
+        (let [page-name (db/get-file-page path)
+              blocks (db/get-page-blocks-no-cache repo page-name)
+              ordered (->> (tree/blocks->vec-tree repo blocks page-name)
+                           (mapcat #(tree-seq (comp seq :block/children) :block/children %))
+                           (remove :block/pre-block?))
+              tx (keep (fn [[b props]] (when (seq props) (metadata/set-properties b props)))
+                       (map vector ordered app-properties))]
+          (when (seq tx) (db/transact! repo tx {:s01/import-metadata? true :from-disk? false :s01/index-only? false :replace? true})))))
     (let [files (->> (map (fn [{:file/keys [path content]}] (when path [path content])) files)
                      (remove nil?))]
-      (file-handler/alter-files repo files {:add-history? false
-                                            :update-db? false
-                                            :update-status? false
-                                            :finish-handler finish-handler}))
+      (if (s01/enabled? repo)
+        (file-handler/alter-files-handler! repo files {:finish-handler finish-handler} old-contents)
+        (file-handler/alter-files repo files {:add-history? false
+                                              :update-db? false
+                                              :update-status? false
+                                              :finish-handler finish-handler})))
     (let [journal-pages-tx (let [titles (filter date/normalize-journal-title titles)]
                              (map
                                (fn [title]
@@ -67,12 +87,12 @@
                                         :block/journal-day day}))))
                                titles))]
       (when (seq journal-pages-tx)
-        (db/transact! repo journal-pages-tx)))))
+        (db/transact! repo journal-pages-tx))))))
 
 (defn import-from-roam-json!
   [data finished-ok-handler]
   (when-let [repo (state/get-current-repo)]
-    (let [files (external/to-markdown-files :roam data {})]
+    (let [files (external/to-markdown-files :roam data {:s01? (s01/enabled? repo)})]
       (index-files! repo files
                     (fn []
                       (finished-ok-handler))))))

@@ -61,7 +61,7 @@ Rules:
     (when (string? path)
       (or
        (some #(string/starts-with? rpath %)
-             ["." "logseq/.recycle" "logseq/bak" "logseq/version-files"])
+             ["." "logseq/conflicts/" "logseq/identity.sqlite" "logseq/metadata.sqlite" "logseq/.recycle" "logseq/bak" "logseq/version-files"])
        (contains? #{"logseq/graphs-txid.edn" "logseq/pages-metadata.edn"} rpath)
        (some #(string/includes? rpath (str "/" % "/"))
              ["node_modules"])

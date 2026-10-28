@@ -1,0 +1,81 @@
+{
+  "graph": "/var/folders/hf/8_zs_3657ks8btp08ncr4c9c0000gn/T/s01-ui-74ZBpF/graph",
+  "events": [
+    {
+      "name": "compositionstart",
+      "data": "",
+      "trusted": true,
+      "value": ""
+    },
+    {
+      "name": "compositionupdate",
+      "data": "ㅎ",
+      "trusted": true,
+      "value": ""
+    },
+    {
+      "name": "compositionupdate",
+      "data": "하",
+      "trusted": true,
+      "value": "ㅎ"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "한",
+      "trusted": true,
+      "value": "하"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "한",
+      "trusted": true,
+      "value": "한"
+    },
+    {
+      "name": "compositionend",
+      "data": "한",
+      "trusted": false,
+      "value": "한"
+    },
+    {
+      "name": "compositionstart",
+      "data": "",
+      "trusted": true,
+      "value": "한"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "ㄱ",
+      "trusted": true,
+      "value": "한"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "그",
+      "trusted": true,
+      "value": "한ㄱ"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "글",
+      "trusted": true,
+      "value": "한그"
+    },
+    {
+      "name": "compositionupdate",
+      "data": "글",
+      "trusted": true,
+      "value": "한글"
+    },
+    {
+      "name": "compositionend",
+      "data": "글",
+      "trusted": false,
+      "value": "한글"
+    }
+  ],
+  "initialId": "2d62e480-d150-48d4-941e-799193eaa8c3",
+  "finalId": "2d62e480-d150-48d4-941e-799193eaa8c3",
+  "content": "- 한글\n- 두 번째",
+  "errors": []
+}

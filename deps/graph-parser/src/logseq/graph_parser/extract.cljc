@@ -152,26 +152,42 @@
        returns a list of the uuids, given the receiving ast, or nil if not able to resolve.
        Implemented in file-common-handler/diff-merge-uuids for IoC
        Called in gp-extract/extract as AST is being parsed and properties are extracted there"
-  [format ast properties file content {:keys [date-formatter db filename-format extracted-block-ids resolve-uuid-fn]
+  [format ast properties file content {:keys [date-formatter db filename-format extracted-block-ids resolve-uuid-fn identity-fn document-name-fn document-ref-fn block-metadata-fn identity-blocks-fn]
                                        :or {extracted-block-ids (atom #{})
                                             resolve-uuid-fn (constantly nil)}
                                        :as options}]
   (try
-    (let [page (get-page-name file ast false filename-format)
+    (let [page (if document-name-fn (document-name-fn file) (get-page-name file ast false filename-format))
           [page page-name _journal-day] (gp-block/convert-page-if-journal page date-formatter)
           options' (assoc options :page-name page-name)
           ;; In case of diff-merge (2way) triggered, use the uuids to override the ones extracted from the AST
           override-uuids (resolve-uuid-fn format ast content options')
-          blocks (->> (gp-block/extract-blocks ast content false format options')
-                      (attach-block-ids-if-match override-uuids)
+          raw-blocks (if (seq ast) (gp-block/extract-blocks ast content false format options') [])
+          identity (when identity-fn (if identity-blocks-fn (identity-blocks-fn raw-blocks) (identity-fn (count raw-blocks))))
+          blocks (->> raw-blocks
+                      (attach-block-ids-if-match (or (:block-ids identity) override-uuids))
+                      (map (fn [b]
+                             (let [id (str (:block/uuid b))
+                                   states (:collapsed identity)
+                                   value (get states id (get states (keyword id) ::missing))]
+                               (if (= ::missing value) b (assoc b :block/collapsed? value)))))
+                      (map (or block-metadata-fn clojure.core/identity))
                       (mapv #(gp-block/fix-block-id-if-duplicated! db page-name extracted-block-ids %))
                       (gp-block/with-parent-and-left {:block/name page-name})
                       (vec))
+          blocks (if document-ref-fn
+                   (map (fn [b]
+                          (-> b
+                              (update :block/refs #(keep document-ref-fn %))
+                              (update :block/path-refs #(keep document-ref-fn %)))) blocks)
+                   blocks)
           ref-pages (atom #{})
           blocks (map (fn [block]
                         (if (contains? #{"macro"} (:block/type block))
                           block
-                          (let [block-ref-pages (seq (:block/refs block))
+                          (let [block-ref-pages (seq (if identity-fn
+                                                      (remove #(and (vector? %) (= :block/uuid (first %))) (:block/refs block))
+                                                      (:block/refs block)))
                                 page-lookup-ref [:block/name page-name]
                                 block-path-ref-pages (->> (cons page-lookup-ref (seq (:block/path-refs block)))
                                                           (remove nil?))]
@@ -191,8 +207,13 @@
              (:block/properties-text-values (first blocks))]
             [properties [] {}])
           page-map (build-page-map properties invalid-properties properties-text-values file page page-name (assoc options' :from-page page))
+          page-map (cond-> page-map
+                     document-name-fn (dissoc :block/namespace)
+                     document-name-fn (assoc :block/s01? true)
+                     (and document-name-fn (not (:block/journal? page-map)))
+                     (assoc :block/original-name file))
           namespace-pages (let [page (:block/original-name page-map)]
-                            (when (text/namespace-page? page)
+                            (when (and (not document-name-fn) (text/namespace-page? page))
                               (->> (gp-util/split-namespace-pages page)
                                    (map (fn [page]
                                           (-> (gp-block/page-name->map page true db true date-formatter)
@@ -206,17 +227,24 @@
                      (remove nil?))
           pages (gp-util/distinct-by :block/name pages)
           pages (remove nil? pages)
-          pages (map (fn [page] (assoc page :block/uuid (d/squuid))) pages)
+          pages (map (fn [p] (assoc p :block/uuid
+                                   (cond
+                                     (and identity (= (:block/name p) page-name))
+                                     (uuid (:page-id identity))
+                                     identity
+                                     (or (when db (:block/uuid (d/entity db [:block/name (:block/name p)])))
+                                         (d/squuid))
+                                     :else (d/squuid)))) pages)
           blocks (->> (remove nil? blocks)
                       (map (fn [b] (dissoc b :block/title :block/body :block/level :block/children :block/meta))))]
       [pages blocks])
     (catch :default e
-      (log/error :exception e))))
+      (if identity-fn (throw e) (log/error :exception e)))))
 
 (defn extract
   "Extracts pages, blocks and ast from given file"
   [file-path content {:keys [user-config verbose] :or {verbose true} :as options}]
-  (if (string/blank? content)
+  (if (and (string/blank? content) (not (:identity-fn options)))
     []
     (let [format (gp-util/get-format file-path)
           _ (when verbose (println "Parsing start: " file-path))

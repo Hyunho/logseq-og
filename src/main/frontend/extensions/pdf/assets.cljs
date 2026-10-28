@@ -2,6 +2,7 @@
   (:require [cljs.reader :as reader]
             [clojure.string :as string]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.db.model :as db-model]
             [frontend.db.utils :as db-utils]
             [frontend.fs :as fs]
@@ -132,7 +133,7 @@
                                (get-in highlight [:content :image])
                                (js/Date.now))
                    :hl-color (get-in highlight [:properties :color])}]
-      (editor-property/set-block-property! (:block/uuid block) k v))))
+      (editor-property/set-app-property! (:block/uuid block) k v))))
 
 (defn unlink-hl-area-image$
   [^js _viewer current hl]
@@ -178,8 +179,8 @@
         (page-property/add-property! page-name :file-path url))
       page)))
 
-(defn ensure-ref-block!
-  ([pdf hl] (ensure-ref-block! pdf hl nil))
+(defn- ensure-ref-block-original!
+  ([pdf hl] (ensure-ref-block-original! pdf hl nil))
   ([pdf-current {:keys [id content page properties]} insert-opts]
    (when-let [ref-page (and pdf-current (ensure-ref-page! pdf-current))]
      (let [ref-block (db-model/query-block-by-uuid id)]
@@ -202,6 +203,9 @@
                                           ;; force custom uuid
                                           :id       (str id)})}
                           insert-opts)))))))))
+
+(defn ensure-ref-block! [& args]
+  (when-not (s01/enabled?) (apply ensure-ref-block-original! args)))
 
 (defn del-ref-block!
   [{:keys [id]}]
@@ -238,7 +242,7 @@
 
 (defn goto-block-ref!
   [{:keys [id] :as hl}]
-  (when id
+  (when (and id (not (s01/enabled?)))
     (ensure-ref-block!
      (state/get-current-pdf) hl {:edit-block? false})
     (rfe/push-state :page {:name (str id)})))

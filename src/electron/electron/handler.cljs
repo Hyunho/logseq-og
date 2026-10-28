@@ -2,6 +2,8 @@
   "This ns starts the event handling for the electron main process and defines
   all the application-specific event types"
   (:require ["/electron/utils" :as js-utils]
+            ["/electron/s01" :as s01]
+            ["mldoc" :as mldoc]
             ["abort-controller" :as AbortController]
             ["buffer" :as buffer]
             ["diff-match-patch" :as google-diff]
@@ -31,6 +33,8 @@
             [goog.functions :refer [debounce]]
             [logseq.common.graph :as common-graph]
             [promesa.core :as p]))
+
+(s01/configure mldoc/Mldoc)
 
 (defmulti handle (fn [_window args] (keyword (first args))))
 
@@ -738,6 +742,16 @@
 
 (defn set-ipc-handler! [window]
   (let [main-channel "main"]
+    (.on ipcMain "s01"
+         (fn [^js event request]
+           (set! (.-returnValue event)
+                 (try
+                   (do
+                     (when-not (and (utils/get-win-from-sender event)
+                                    (= (.-senderFrame event) (.-mainFrame (.-sender event))))
+                       (throw (js/Error. "S01 requires the main application frame")))
+                     #js {:value (s01/dispatch request)})
+                   (catch :default e #js {:error (.-message e)})))))
     (.handle ipcMain main-channel
              (fn [^js event args-js]
                (try
@@ -753,4 +767,4 @@
                                                   :args args-js}
                                    e))
                    e))))
-    #(.removeHandler ipcMain main-channel)))
+    #(do (.removeHandler ipcMain main-channel) (.removeAllListeners ipcMain "s01"))))

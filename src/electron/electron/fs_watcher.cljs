@@ -3,6 +3,7 @@
   https://www.npmjs.com/package/chokidar. File watcher events are sent to the
   `file-watcher` ipc channel"
   (:require [cljs-bean.core :as bean]
+            [cljs.reader :as reader]
             ["fs" :as fs]
             ["chokidar" :as watcher]
             [electron.utils :as utils]
@@ -29,7 +30,11 @@
         wins (if (:global-dir payload)
                (window/get-all-windows)
                (window/get-graph-all-windows dir))]
-    (if (or (contains? #{"unlinkDir" "addDir"} type)
+    (if (or (try
+                  (true? (:s01/enabled? (reader/read-string
+                    (fs/readFileSync (str dir "/logseq/config.edn") "utf8"))))
+                  (catch :default _ false))
+            (contains? #{"unlinkDir" "addDir"} type)
             ;; Only change events to a global dir are emitted to all windows.
             ;; Add* events are not emitted to all since each client adds
             ;; files at different times.

@@ -261,7 +261,10 @@
                                           :supportFetchAPI false}}]))
 
       (set-app-menu!)
-      (setup-deeplink!)
+      ;; electron-deeplink mutates Electron.app/Info.plist in development,
+      ;; invalidating the vendor signature and breaking macOS helper processes.
+      (when-not (and mac? dev?)
+        (setup-deeplink!))
 
       (.on app "second-instance"
            (fn [_event _commandLine _workingDirectory]

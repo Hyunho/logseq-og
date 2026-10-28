@@ -2,6 +2,7 @@
   "Provides functionality for commands and advanced commands"
   (:require [clojure.string :as string]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.date :as date]
             [frontend.db :as db]
             [frontend.db.utils :as db-utils]
@@ -309,7 +310,7 @@
 
     (state/get-commands)
     (state/get-plugins-slash-commands))
-   (remove nil?)
+   (remove #(or (nil? %) (and (s01/enabled?) (contains? #{"Block reference" "Block embed"} (first %)))))
    (util/distinct-by-last-wins first)))
 
 (defn init-commands!
@@ -655,7 +656,7 @@
   (state/set-editor-action! :page-search-hashtag))
 
 (defmethod handle-step :editor/search-block [[_ _type]]
-  (state/set-editor-action! :block-search))
+  (when-not (s01/enabled?) (state/set-editor-action! :block-search)))
 
 (defmethod handle-step :editor/search-template [[_]]
   (state/set-editor-action! :template-search))

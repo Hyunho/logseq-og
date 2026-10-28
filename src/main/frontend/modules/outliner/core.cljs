@@ -11,6 +11,8 @@
             [frontend.modules.outliner.tree :as tree]
             [frontend.modules.outliner.utils :as outliner-u]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
             [frontend.util :as util]
             [frontend.util.property :as property]
             [logseq.graph-parser.util :as gp-util]
@@ -427,8 +429,11 @@
             (cond-> block
               (and (some? (:block/uuid block))
                    (nil? (list-type-fn block)))
-              (-> (update :block/properties #(assoc % :logseq.order-list-type list-type))
-                  (assoc :block/content (property/insert-property format content :logseq.order-list-type list-type)))))
+              ((fn [b]
+                 (if (and (s01/enabled?) (= :markdown format))
+                   (metadata/set-properties b [[:logseq.order-list-type list-type]])
+                   (-> b (update :block/properties #(assoc % :logseq.order-list-type list-type))
+                       (assoc :block/content (property/insert-property format content :logseq.order-list-type list-type))))))))
           blocks)
         blocks))))
 

@@ -128,7 +128,8 @@
              (fn [tx-report]
                (when (not (:new-graph? (:tx-meta tx-report))) ; skip initial txs
                  (if (util/electron?)
-                   (when-not (:dbsync? (:tx-meta tx-report))
+                   (when-not (or (:dbsync? (:tx-meta tx-report))
+                                 (:s01/enabled? (state/get-config repo)))
                      ;; sync with other windows if needed
                      (p/let [graph-has-other-window? (ipc/ipc "graphHasOtherWindow" repo)]
                        (when graph-has-other-window?
