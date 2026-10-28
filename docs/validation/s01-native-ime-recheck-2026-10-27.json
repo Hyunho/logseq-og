@@ -1,0 +1,24 @@
+{
+  "graph": "/var/folders/hf/8_zs_3657ks8btp08ncr4c9c0000gn/T/s01-ui-Nv7vTl/graph",
+  "status": "failed-native-composition-observation",
+  "inputSource": "com.apple.inputmethod.Korean.2SetKorean",
+  "method": "CUA native pressKey, no Korean fill/paste",
+  "observations": [
+    {
+      "keys": "g k s r m f",
+      "AXValue": "ㅎㅏㄴㄱㅡㄹ"
+    },
+    {
+      "keys": "clear, g k s",
+      "AXValue": "ㅎㅏㄴ"
+    },
+    {
+      "keys": "ctrl+space twice (ABC then Korean), clear, g k s",
+      "AXValue": "ㅎㅏㄴ"
+    }
+  ],
+  "compositionEventsLogged": 0,
+  "interpretation": "Not an isTrusted=false event. No composition event was observed in this run. Product versus input automation/focus cause remains unresolved.",
+  "testExitCode": 1,
+  "failure": "page.waitForFunction: Timeout 240000ms exceeded (no final compositionend with value 한글)"
+}

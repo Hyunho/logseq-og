@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-27",
+  "runtime": {
+    "electron": "41.7.1",
+    "chromium": "146.0.7680.216"
+  },
+  "classification": "CUA-injected keys sometimes arrive as ordinary insertText without IME composition; physical-keyboard comparison composes normally. Exact internal CUA/macOS API cause is not established.",
+  "productCodeChanged": false,
+  "duplicateInstances": "Observed CUA selecting a stale demo window; cleaned only isolated test processes. Not the sole cause: isolated run 2 also failed.",
+  "runs": [
+    {
+      "run": 1,
+      "actor": "CUA pressKey",
+      "result": "pass",
+      "exactMarkdown": true,
+      "exitCode": 0
+    },
+    {
+      "run": 2,
+      "actor": "CUA pressKey",
+      "result": "no composition; insertText jamo in editor and search",
+      "exitCode": 1
+    },
+    {
+      "run": 3,
+      "actor": "physical keyboard, confirmed by user",
+      "result": "normal composition, fixed-text assertion not reached because prior test prefix remained",
+      "exitCode": 1
+    },
+    {
+      "run": 4,
+      "actor": "physical keyboard, confirmed by user",
+      "result": "pass after clearing a first attempt containing literal arrow characters",
+      "exactMarkdown": true,
+      "restartIdStable": true,
+      "exitCode": 0
+    }
+  ],
+  "physicalCompositionTrials": 3,
+  "physicalExactTextPasses": 1,
+  "finalContent": "- 한글\n- 두 번째",
+  "stableBlockId": "b4b3c85e-4a41-4a18-a9c3-c2b245fc08bd",
+  "duplicateGuard": {
+    "expectedExitCode": 1,
+    "actualExitCode": 1
+  },
+  "limits": "Physical typing was performed by the user. CUA internal implementation was not inspected; automated Korean key injection is not a reliable OS IME acceptance substitute.",
+  "timeoutCleanup": {
+    "injectedTimeoutMs": 1000,
+    "expectedExitCode": 1,
+    "actualExitCode": 1,
+    "electronProcessesRemaining": 0
+  },
+  "acceptanceStatus": "complete for macOS two-set Korean on the current development build"
+}

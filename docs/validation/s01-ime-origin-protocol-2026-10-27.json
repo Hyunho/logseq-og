@@ -1,0 +1,193 @@
+{
+  "mode": "protocol",
+  "versions": {
+    "node": "24.15.0",
+    "acorn": "8.16.0",
+    "ada": "3.4.4",
+    "amaro": "1.1.8",
+    "ares": "1.34.6",
+    "brotli": "1.0.9",
+    "cldr": "47.0",
+    "icu": "77.1",
+    "llhttp": "9.3.1",
+    "merve": "1.2.2",
+    "modules": "145",
+    "napi": "10",
+    "nbytes": "0.1.3",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.68.0",
+    "openssl": "0.0.0",
+    "simdjson": "4.5.0",
+    "simdutf": "7.7.0",
+    "sqlite": "3.51.3",
+    "tz": "2025b",
+    "undici": "7.24.4",
+    "unicode": "16.0",
+    "uv": "1.51.0",
+    "uvwasi": "0.0.23",
+    "v8": "14.6.202.34-electron.0",
+    "zlib": "1.3.1",
+    "zstd": "1.6.0",
+    "electron": "41.7.1",
+    "chrome": "146.0.7680.216"
+  },
+  "os": "27.0.0",
+  "value": "한글",
+  "observed": {
+    "events": [
+      {
+        "phase": "capture",
+        "type": "compositionstart",
+        "data": "",
+        "trusted": true,
+        "value": "",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionstart",
+        "data": "",
+        "trusted": true,
+        "value": "",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "ㅎ",
+        "trusted": true,
+        "value": "",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "ㅎ",
+        "trusted": true,
+        "value": "",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "하",
+        "trusted": true,
+        "value": "ㅎ",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "하",
+        "trusted": true,
+        "value": "ㅎ",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "한",
+        "trusted": true,
+        "value": "하",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "한",
+        "trusted": true,
+        "value": "하",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "한ㄱ",
+        "trusted": true,
+        "value": "한",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "한ㄱ",
+        "trusted": true,
+        "value": "한",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "한그",
+        "trusted": true,
+        "value": "한ㄱ",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "한그",
+        "trusted": true,
+        "value": "한ㄱ",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "한글",
+        "trusted": true,
+        "value": "한그",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "한글",
+        "trusted": true,
+        "value": "한그",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionupdate",
+        "data": "한글",
+        "trusted": true,
+        "value": "한글",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionupdate",
+        "data": "한글",
+        "trusted": true,
+        "value": "한글",
+        "target": "native"
+      },
+      {
+        "phase": "capture",
+        "type": "compositionend",
+        "data": "한글",
+        "trusted": false,
+        "value": "한글",
+        "target": "native"
+      },
+      {
+        "phase": "bubble",
+        "type": "compositionend",
+        "data": "한글",
+        "trusted": false,
+        "value": "한글",
+        "target": "native"
+      }
+    ],
+    "dispatches": []
+  },
+  "positiveControl": [
+    {
+      "type": "compositionend",
+      "data": "positive-control",
+      "stack": "Error\n    at EventTarget.dispatchEvent (data:text/html;base64,PCFkb2N0eXBlIGh0bWw+PG1ldGEgY2hhcnNldD0idXRmLTgiPjx0aXRsZT5TMDEgSU1FIE9yaWdpbiBwcm90b2NvbDwvdGl0bGU+CiAgIDxoMT5TMDEgSU1FIE9yaWdpbiBwcm90b2NvbDwvaDE+PHA+UGxhaW4gdGV4dGFyZWEg4oCUIG5vIExvZ3NlcSwgUmVhY3QsIHByZWxvYWQgb3IgUGxheXdyaWdodDwvcD4KICAgPHRleHRhcmVhIGlkPSJuYXRpdmUiIGFyaWEtbGFiZWw9Ik5hdGl2ZSBJTUUgcHJvYmUiIGF1dG9mb2N1cyBzdHlsZT0iZm9udC1zaXplOjMycHg7d2lkdGg6OTAlO2hlaWdodDoxMDBweCI+PC90ZXh0YXJlYT4KICAgPHRleHRhcmVhIGlkPSJjb250cm9sIiBoaWRkZW4+PC90ZXh0YXJlYT48c2NyaXB0PgogICB3aW5kb3cucHJvYmU9e2V2ZW50czpbXSxkaXNwYXRjaGVzOltdfTsKICAgY29uc3QgZGlzcGF0Y2g9RXZlbnRUYXJnZXQucHJvdG90eXBlLmRpc3BhdGNoRXZlbnQ7CiAgIEV2ZW50VGFyZ2V0LnByb3RvdHlwZS5kaXNwYXRjaEV2ZW50PWZ1bmN0aW9uKGUpe2lmKGUudHlwZS5zdGFydHNXaXRoKCdjb21wb3NpdGlvbicpKXByb2JlLmRpc3BhdGNoZXMucHVzaCh7dHlwZTplLnR5cGUsZGF0YTplLmRhdGEsc3RhY2s6bmV3IEVycm9yKCkuc3RhY2t9KTtyZXR1cm4gZGlzcGF0Y2guY2FsbCh0aGlzLGUpfTsKICAgZm9yKGNvbnN0IHBoYXNlIG9mIFsnY2FwdHVyZScsJ2J1YmJsZSddKSBmb3IoY29uc3QgdHlwZSBvZiBbJ2NvbXBvc2l0aW9uc3RhcnQnLCdjb21wb3NpdGlvbnVwZGF0ZScsJ2NvbXBvc2l0aW9uZW5kJ10pCiAgICBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKHR5cGUsZT0+cHJvYmUuZXZlbnRzLnB1c2goe3BoYXNlLHR5cGUsZGF0YTplLmRhdGEsdHJ1c3RlZDplLmlzVHJ1c3RlZCx2YWx1ZTplLnRhcmdldC52YWx1ZSx0YXJnZXQ6ZS50YXJnZXQuaWR9KSxwaGFzZT09PSdjYXB0dXJlJyk7CiAgIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCduYXRpdmUnKS5mb2N1cygpOwogICA8L3NjcmlwdD4=:7:141)\n    at <anonymous>:1:36"
+    }
+  ],
+  "errors": []
+}
