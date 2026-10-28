@@ -1,4 +1,8 @@
 {:accessibility/skip-to-main-content "Skip to main content"
+ :file/view-raw "View file source (Raw)"
+ :file/raw-description "Read-only contents of the saved file. Unsaved edits are not included."
+ :file/raw-refresh "Refresh"
+ :file/raw-read-error "Unable to read the file. Check that it exists and is accessible, then refresh."
  :tutorial/text #resource "tutorials/tutorial-en.md"
  :tutorial/dummy-notes #resource "tutorials/dummy-notes-en.md"
  :on-boarding/demo-graph "This is a demo graph, changes will not be saved until you open a local folder."

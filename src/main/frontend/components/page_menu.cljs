@@ -1,6 +1,7 @@
 (ns frontend.components.page-menu
   (:require [frontend.commands :as commands]
             [frontend.components.export :as export]
+            [frontend.components.raw-file :as raw-file]
             [frontend.context.i18n :refer [t]]
             [frontend.db :as db]
             [frontend.handler.notification :as notification]
@@ -15,6 +16,7 @@
             [frontend.mobile.util :as mobile-util]
             [electron.ipc :as ipc]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.handler.user :as user-handler]
             [frontend.handler.file-sync :as file-sync-handler]
             [logseq.common.path :as path]))
@@ -80,7 +82,19 @@
                                     (file-sync-handler/get-current-graph-uuid))]
       (when (and page (not block?))
         (->>
-         [(when-not config/publishing?
+         [(when (s01/enabled?)
+            {:title "일반 저장 저널 정리"
+             :options {:on-click #(state/pub-event! [:s01/prune-journals (state/get-current-repo)])}})
+          (when (s01/enabled?)
+            {:title "보관된 링크 수정안"
+             :options {:on-click #(state/pub-event! [:s01/show-link-plans (state/get-current-repo)])}})
+          (when (s01/enabled?)
+            {:title "저장 충돌 확인"
+             :options {:on-click #(state/pub-event! [:s01/show-conflicts (state/get-current-repo)])}})
+          (when (and (s01/enabled?) file-rpath)
+            {:title "파일 이름·위치 변경"
+             :options {:on-click #(state/pub-event! [:s01/move-document file-rpath])}})
+          (when-not config/publishing?
             {:title   (if favorited?
                         (t :page/unfavorite)
                         (t :page/add-to-favorites))
@@ -128,6 +142,10 @@
           ;; (such as open-in-finder & open-with-default-app) into a sub-menu of
           ;; this one. However this component doesn't yet exist. PRs are welcome!
           ;; Details: https://github.com/logseq/logseq/pull/3003#issuecomment-952820676
+          (when (and file-rpath (not config/publishing?))
+            {:title (t :file/view-raw)
+             :options {:on-click #(raw-file/show! repo file-rpath)}})
+
           (when file-rpath
             (let [repo-dir (config/get-repo-dir repo)
                   file-fpath (path/path-join repo-dir file-rpath)]

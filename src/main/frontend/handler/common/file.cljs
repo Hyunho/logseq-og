@@ -1,7 +1,10 @@
 (ns frontend.handler.common.file
   "Common file related fns for handlers"
   (:require [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
             [frontend.state :as state]
+            [frontend.util :as util]
             [frontend.db :as db]
             [logseq.graph-parser :as graph-parser]
             [logseq.graph-parser.util :as gp-util]
@@ -76,7 +79,7 @@
      :fs/remote-file-change - file changed on remote"
   [repo-url file-path content {:fs/keys [event] :as options}]
   (let [db-conn (db/get-db repo-url false)]
-    (case event
+    (case (if (s01/enabled? repo-url) nil event)
       ;; the file is already in db, so we can use the existing file's blocks
       ;; to do the diff-merge
       :fs/local-file-change
@@ -107,7 +110,44 @@
                                             :date-formatter (state/get-date-formatter)
                                             :block-pattern (config/get-block-pattern (gp-util/get-format file-path))
                                             :filename-format (state/get-filename-format repo-url)}
+                                           (when (and (s01/enabled? repo-url) (s01/document? file-path))
+                                             {:document-name-fn s01/document-key
+                                              :block-metadata-fn
+                                              (let [stored (s01/metadata-map repo-url)]
+                                                (fn [b] (if-let [m (get stored (str (:block/uuid b)))]
+                                                          (metadata/hydrate b m) b)))
+                                              :document-ref-fn
+                                              (let [paths (s01/call! repo-url "paths" {})]
+                                                (fn [ref]
+                                                  (when (map? ref)
+                                                    (let [target (or (:block/original-name ref) (:block/name ref))
+                                                          result (s01/resolve-document paths target)]
+                                                      (if (= :found (:status result))
+                                                        (let [file (first (:paths result))]
+                                                          (assoc (dissoc ref :block/uuid :db/id) :block/name (s01/document-key file)
+                                                                 :block/original-name file))
+                                                        ref)))))
+                                              :identity-blocks-fn
+                                              (fn [blocks]
+                                                (let [result (s01/call! repo-url "identity"
+                                                               {:relative file-path :content content :count (count blocks)
+                                                                :blocks (mapv :block/content blocks)})]
+                                                  {:page-id (:pageId result) :block-ids (:blockIds result)
+                                                   :collapsed (:collapsed result)}))
+                                              :identity-fn
+                                              (fn [count]
+                                                (let [result (s01/call! repo-url "identity"
+                                                               {:relative file-path :content content :count count})]
+                                                  {:page-id (:pageId result) :block-ids (:blockIds result)
+                                                   :collapsed (:collapsed result)}))})
                                            ;; To avoid skipping the `:or` bounds for keyword destructuring
                                            (when (some? extracted-block-ids) {:extracted-block-ids extracted-block-ids})
                                            (when (some? verbose) {:verbose verbose}))})]
+     (when (and (s01/enabled? repo-url) (s01/document? file-path))
+       ;; Upgrade the internal key in place without touching Markdown or page identity.
+       (when-let [page-id (db/get-file-page-id file-path)]
+         (let [key (s01/document-key file-path)]
+           (when (not= key (:block/name (db/pull page-id)))
+             (db/transact! repo-url [{:db/id page-id :block/name key :block/s01? true}]
+               {:s01/index-only? true})))))
      (:tx (reset-file!* repo-url file-path content options)))))

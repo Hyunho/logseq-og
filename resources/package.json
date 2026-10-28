@@ -21,6 +21,7 @@
     "forge": "./forge.config.js"
   },
   "dependencies": {
+    "mldoc": "1.5.7",
     "@fastify/cors": "11.0.1",
     "@logseq/rsapi": "0.0.92",
     "@sentry/electron": "2.5.1",

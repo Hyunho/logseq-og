@@ -3,6 +3,9 @@
   (:require [clojure.set :as set]
             [clojure.string :as string]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.modules.file.core :as file-core]
+            [frontend.modules.editor.undo-redo :as undo-redo]
             [frontend.date :as date]
             [frontend.db :as db]
             [frontend.db.model :as model]
@@ -52,10 +55,11 @@
           _ (file-handler/alter-file repo path content {:re-render-root? true
                                                         :from-disk? true
                                                         :fs/event :fs/local-file-change})]
-    (set-missing-block-ids! content)
-    (db/set-file-last-modified-at! repo path mtime)))
+    (when-not (s01/enabled? repo) (set-missing-block-ids! content))
+    (db/set-file-last-modified-at! repo path mtime)
+    (when (s01/enabled? repo) (s01/reconcile-index-later! repo))))
 
-(defn handle-changed!
+(defn- handle-changed-original!
   [type {:keys [dir path content stat global-dir] :as payload}]
   (when dir
     (let [;; Global directory events don't know their originating repo so we rely
@@ -84,13 +88,15 @@
               nil
 
               (and (= "add" type)
-                   (not= (string/trim content) (string/trim db-content)))
+                   (if (s01/enabled? repo) (not= content db-content)
+                     (not= (string/trim content) (string/trim db-content))))
               (let [backup? (not (string/blank? db-content))]
                 (handle-add-and-change! repo path content db-content mtime backup?))
 
               (and (= "change" type)
                    (= dir repo-dir)
-                   (not= (string/trim content) (string/trim db-content))
+                   (if (s01/enabled? repo) (not= content db-content)
+                     (not= (string/trim content) (string/trim db-content)))
                    (not (gp-config/local-asset? path)))
               (when-not (and
                          (string/includes? path (str "/" (config/get-journals-directory) "/"))
@@ -136,6 +142,39 @@
       ;; return nil, otherwise the entire db will be transferred by ipc
       nil)))
 
+(defn handle-changed!
+  [type {:keys [dir path content] :as payload}]
+  (let [repo (when dir (config/get-local-repo dir))]
+    (if (and repo (s01/enabled? repo) (s01/document? path)
+             (contains? #{"add" "change" "unlink"} type))
+      (if (state/editor-in-composition?)
+        (js/setTimeout #(handle-changed! type payload) 100)
+        (let [scan (s01/call! repo "scan" {})
+              _ (when-let [plan (:plan scan)] (state/pub-event! [:s01/link-plan repo (:id plan)]))
+              _ (when (:notice scan) (state/pub-event! [:s01/reconcile-cache repo]))
+              _ (when (or (:pathsChanged scan) (contains? #{"add" "unlink"} type))
+                  (s01/reconcile-index-later! repo))
+              current (s01/call! repo "read" {:relative path})
+              content (:content current)
+              base (db/get-file repo path)
+              type (if (nil? content) "unlink" (if (nil? base) "add" "change"))
+              payload (assoc payload :content content :stat {:mtime (:mtime current)})
+              page-name (db/get-file-page path)
+              page-id (db/get-file-page-id path)
+              app (when page-name (file-core/editing-snapshot repo page-name))
+              changed? (not= base content)]
+          (when changed?
+            (if (and app (file-core/dirty? repo page-name))
+              (let [record (s01/call! repo "conflict" {:relative path :base base :app app})]
+                (state/pub-event! [:s01/conflict repo (:id record)]))
+              (do
+                (undo-redo/invalidate-page! repo page-id)
+                (when (= page-id (get-in (state/get-edit-block) [:block/page :db/id]))
+                  (state/clear-edit!))
+                (state/clear-selection!)
+                (handle-changed-original! type payload))))))
+      (handle-changed-original! type payload))))
+
 (defn preload-graph-homepage-files!
   "Preload the homepage file for the current graph. Return loaded file paths.
 
@@ -163,7 +202,7 @@
                              (str parent-dir "/" file-name "." ext)))]
         (prn ::preload-homepage file-rpath)
         (p/let [file-exists? (fs/file-exists? repo-dir file-rpath)
-                _ (when file-exists?
+                _ (when (and file-exists? (not (s01/enabled? repo)))
                     ;; BUG: avoid active-editing block content overwrites incoming fs changes
                     (editor-handler/escape-editing false))
                 file-content (when file-exists?
@@ -178,12 +217,12 @@
            (cond
              (and file-exists?
                   db-empty?)
-             (handle-add-and-change! repo file-rpath file-content db-content file-mtime false)
+             (handle-changed! "add" {:dir repo-dir :path file-rpath :content file-content :stat {:mtime file-mtime}})
 
              (and file-exists?
                   (not db-empty?)
                   (not= file-content db-content))
-             (handle-add-and-change! repo file-rpath file-content db-content file-mtime true))
+             (handle-changed! "change" {:dir repo-dir :path file-rpath :content file-content :stat {:mtime file-mtime}}))
 
            (ui-handler/re-render-root!)
 
@@ -234,10 +273,13 @@
         (prn ::initial-watcher repo-dir {:deleted (count deleted-files)
                                          :total (count files)})
         (when (seq deleted-files)
+          (if (s01/enabled? graph)
+            (doseq [file deleted-files]
+              (handle-changed! "unlink" {:dir repo-dir :path file}))
           (let [delete-tx-data (->> (db/delete-files deleted-files)
                                     (concat (db/delete-blocks graph deleted-files nil))
                                     (remove nil?))]
-            (db/transact! graph delete-tx-data {:delete-files? true})))
+            (db/transact! graph delete-tx-data {:delete-files? true}))))
         (-> (p/delay 500) ;; workaround for notification ui not showing
             (p/then #(p/all (map (fn [file-rpath]
                                    (p/let [stat (fs/stat repo-dir file-rpath)

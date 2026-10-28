@@ -82,8 +82,8 @@
   [title column {:keys [sort-by-column sort-desc?]} block-id]
   [:th.whitespace-nowrap
    [:a {:on-click (fn []
-                    (editor-property/set-block-property! block-id :query-sort-by (name column))
-                    (editor-property/set-block-property! block-id :query-sort-desc (not sort-desc?)))}
+                    (editor-property/set-app-property! block-id :query-sort-by (name column))
+                    (editor-property/set-app-property! block-id :query-sort-desc (not sort-desc?)))}
     [:div.flex.items-center
      [:span.mr-1 title]
      (when (= sort-by-column column)

@@ -19,6 +19,7 @@
             [frontend.components.svg :as svg]
             [frontend.components.query :as query]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.context.i18n :refer [t]]
             [frontend.date :as date]
             [frontend.db :as db]
@@ -756,22 +757,33 @@
 (rum/defc page-reference < rum/reactive
   "Component for page reference"
   [html-export? s {:keys [nested-link? id] :as config} label]
-  (let [show-brackets? (state/show-brackets?)
+  (let [resolution (when (s01/enabled?) (s01/lookup-document s))
+        show-brackets? (state/show-brackets?)
         block-uuid (:block/uuid config)
         contents-page? (= "contents" (string/lower-case (str id)))]
-    (if (string/ends-with? s ".excalidraw")
+    (cond
+      (and resolution (not= :found (:status resolution)))
+      [:span.warning {:title (if (= :ambiguous (:status resolution))
+                                (str "동명 문서: " (string/join ", " (:paths resolution)))
+                                "문서가 없습니다. 생성 위치를 확인해 주세요.")
+                      :on-click (fn [e] (util/stop e)
+                                  (state/pub-event! [:s01/open-document s]))}
+       (str "[[" s "]]")]
+      (string/ends-with? s ".excalidraw")
       [:div.draw {:on-click (fn [e]
                               (.stopPropagation e))}
        (excalidraw s block-uuid)]
+      :else
       [:span.page-reference
        {:data-ref s}
        (when (and (or show-brackets? nested-link?)
                   (not html-export?)
                   (not contents-page?))
          [:span.text-gray-500.bracket page-ref/left-brackets])
-       (let [s (string/trim s)]
+       (let [original-s s
+             s (or (:page-name resolution) (string/trim s))]
          (page-cp (assoc config
-                         :label (mldoc/plain->text label)
+                         :label (or (mldoc/plain->text label) (when resolution original-s))
                          :contents-page? contents-page?)
                   {:block/name s}))
        (when (and (or show-brackets? nested-link?)
@@ -813,7 +825,7 @@
                                         :embed-parent (:block config)
                                         :ref? false))]])))
 
-(rum/defc page-embed < rum/reactive db-mixins/query
+(rum/defc page-embed-original < rum/reactive db-mixins/query
   [config page-name]
   (let [page-name (util/page-name-sanity-lc (string/trim page-name))
         current-page (state/get-current-page)
@@ -841,6 +853,36 @@
                                            :page-embed? true
                                            :ref? false)))))]))
 
+(rum/defc page-embed-s01 < rum/reactive db-mixins/query
+  [config target]
+  (let [resolution (when (s01/enabled?) (s01/lookup-document target))
+        page-name (util/page-name-sanity-lc (or (:page-name resolution) (string/trim target)))
+        visited (or (:s01/embed-path config) #{(state/get-current-page)})
+        cycle? (contains? visited page-name)
+        missing? (and resolution (not= :found (:status resolution)))]
+    [:div.color-level.embed.embed-page.bg-base-2
+     {:class (when (:sidebar? config) "in-sidebar")
+      :on-double-click #(edit-parent-block % config)
+      :on-mouse-down #(.stopPropagation %)}
+     [:section.flex.items-center.p-1.embed-header
+      [:div.mr-3 svg/page]
+      (if missing? (page-reference false target config nil)
+          (page-cp config {:block/name page-name}))]
+     (cond
+       missing? [:p.warning "문서 대상을 확인해 주세요."]
+       cycle? [:p.warning "순환 임베드: 위 원본 링크에서 문서를 열 수 있습니다."]
+       (model/whiteboard-page? page-name)
+       ((state/get-component :whiteboard/tldraw-preview) page-name)
+       :else
+       (let [page (model/get-page page-name)
+             blocks (when page (db/get-paginated-blocks (state/get-current-repo) (:db/id page)))]
+         (blocks-container blocks (assoc config :db/id (:db/id page) :id page-name
+                                        :embed? true :page-embed? true :ref? false
+                                        :s01/embed-path (conj visited page-name)))))]))
+
+(defn page-embed [config target]
+  (if (s01/enabled?) (page-embed-s01 config target) (page-embed-original config target)))
+
 (defn- get-label-text
   [label]
   (when (and (= 1 (count label))
@@ -866,7 +908,9 @@
 (rum/defc block-reference < rum/reactive
   db-mixins/query
   [config id label]
-  (if-let [block-id (parse-uuid id)]
+  (if (s01/enabled?)
+    [:span.warning {:title "지원하지 않는 블록 참조"} (str "((" id "))")]
+    (if-let [block-id (parse-uuid id)]
     (let [db-id (:db/id (db/pull [:block/uuid block-id]))
           block (when db-id (db/sub-block db-id))
           block-type (keyword (get-in block [:block/properties :ls-type]))
@@ -943,6 +987,7 @@
          (block-ref/->block-ref id)]))
     [:span.warning.mr-1 {:title "Block ref invalid"}
       (block-ref/->block-ref id)]))
+)
 
 (defn inline-text
   ([format v]
@@ -1280,9 +1325,11 @@
           (page-embed (assoc config :link-depth (inc link-depth)) page-name)))
 
       (block-ref/string-block-ref? a)
-      (when-let [s (-> a block-ref/get-string-block-ref-id string/trim)]
-        (when-let [id (some-> s parse-uuid)]
-          (block-embed (assoc config :link-depth (inc link-depth)) id)))
+      (if (s01/enabled?)
+        [:span.warning {:title "지원하지 않는 블록 임베드"} (str "{{embed " a "}}")]
+        (when-let [s (-> a block-ref/get-string-block-ref-id string/trim)]
+          (when-let [id (some-> s parse-uuid)]
+            (block-embed (assoc config :link-depth (inc link-depth)) id))))
 
       :else                         ;TODO: maybe collections?
       nil)))

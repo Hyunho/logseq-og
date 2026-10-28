@@ -6,6 +6,7 @@
             [datascript.core :as d]
             [frontend.commands :as commands]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.date :as date]
             [frontend.db :as db]
             [frontend.db.conn :as conn]
@@ -94,7 +95,8 @@
 
 (defn- create-title-property?
   [journal? page-name]
-  (and (not journal?)
+  (and (not (s01/enabled?))
+       (not journal?)
        (= (state/get-filename-format) :legacy) ;; reduce title computation
        (fs-util/create-title-property? page-name)))
 
@@ -615,9 +617,9 @@
                               :push        false
                               :path-params {:name to-page-name}})))
 
-(defn rename!
+(defn- rename-original!
   "Accepts unsanitized page names"
-  ([old-name new-name] (rename! old-name new-name true))
+  ([old-name new-name] (rename-original! old-name new-name true))
   ([old-name new-name redirect?]
    (let [repo          (state/get-current-repo)
          old-name      (string/trim old-name)
@@ -643,6 +645,14 @@
        (when (string/blank? new-name)
          (notification/show! "Please use a valid name, empty name is not allowed!" :error)))
      (ui-handler/re-render-root!))))
+
+(defn rename!
+  ([old-name new-name] (rename! old-name new-name true))
+  ([old-name new-name redirect?]
+   (if (and (s01/enabled?) (not (model/whiteboard-page? old-name)))
+     (do (page-property/add-property! old-name :title new-name)
+         (ui-handler/re-render-root!))
+     (rename-original! old-name new-name redirect?))))
 
 (defn- split-col-by-element
   [col element]
@@ -708,7 +718,7 @@
           (util/format "[[file:%s][%s]]"
                        (util/get-relative-path edit-block-file-path ref-file-path)
                        page)))
-      (page-ref/->page-ref page))))
+      (page-ref/->page-ref (if (s01/enabled?) (s01/preferred-target page) page)))))
 
 (defn init-commands!
   []

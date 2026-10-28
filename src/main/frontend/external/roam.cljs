@@ -74,6 +74,8 @@
       (fenced-code-transform)))
 
 (declare children->text)
+(def ^:dynamic *s01-import?* false)
+
 (defn child->text
   [{:keys [uid string children]} level]
   (when-not (and (get @uid->uuid uid) uid)
@@ -83,7 +85,7 @@
                            (if (zero? level)
                              "-"
                              " -"))
-        properties (when (contains? @all-refed-uids uid)
+        properties (when (and (not *s01-import?*) (contains? @all-refed-uids uid))
                      (str
                       (gstring/format "id:: %s"
                                    (str (get @uid->uuid uid)))
@@ -118,6 +120,11 @@
       {:title title
        :created-at create-time
        :last-modified-at edit-time
+       :app-properties (when *s01-import?*
+                         (mapv (fn [node]
+                                 (when (contains? @all-refed-uids (:uid node))
+                                   {:id (str (get @uid->uuid (:uid node)))}))
+                               (mapcat #(tree-seq (comp seq :children) :children %) children)))
        :text text})))
 
 (defn ->files
@@ -129,7 +136,8 @@
                         files)]
     (map
      (fn [[_ [fst & others]]]
-       (assoc fst :text
+       (assoc fst :app-properties (vec (mapcat :app-properties (cons fst others)))
+              :text
               (->> (map :text (cons fst others))
                    (interpose "\n")
                    (apply str))))
@@ -137,8 +145,9 @@
 
 (defrecord Roam []
   protocol/External
-  (toMarkdownFiles [_this content _config]
-                   (-> content json->edn ->files)))
+  (toMarkdownFiles [_this content config]
+    (binding [*s01-import?* (:s01? config)]
+      (doall (-> content json->edn ->files)))))
 
 (comment
   (defonce test-roam-json (frontend.db/get-file "same.json"))

@@ -14,6 +14,7 @@
             [frontend.commands :as commands]
             [frontend.rum :refer [use-atom]]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
             [frontend.util :as util]
             [medley.core :as medley]
             [promesa.core :as p]
@@ -205,11 +206,11 @@
       (for [it ["yellow", "red", "green", "blue", "purple"]]
         [:a {:key it :data-color it :data-action it} it])]
 
-     (and id [:li.item {:data-action "ref"} (t :pdf/copy-ref)])
+     (and id (not (s01/enabled?)) [:li.item {:data-action "ref"} (t :pdf/copy-ref)])
 
      (and (not area?) [:li.item {:data-action "copy"} (t :pdf/copy-text)])
 
-     (and id [:li.item {:data-action "link"} (t :pdf/linked-ref)])
+     (and id (not (s01/enabled?)) [:li.item {:data-action "link"} (t :pdf/linked-ref)])
 
      (and id [:li.item {:data-action "del"} (t :delete)])
 

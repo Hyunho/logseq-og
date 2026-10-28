@@ -6,6 +6,7 @@
   (mu/optional-keys
    [:map
     [:meta/version :int]
+    [:s01/enabled? :boolean]
     ;; Loose since it looks like capitalization and string are possible
     [:preferred-format [:or :keyword :string]]
     [:preferred-workflow [:enum :now :todo]]

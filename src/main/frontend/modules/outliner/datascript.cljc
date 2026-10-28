@@ -7,6 +7,8 @@
                      [frontend.modules.outliner.pipeline :as pipelines]
                      [frontend.modules.editor.undo-redo :as undo-redo]
                      [frontend.state :as state]
+                     [frontend.s01 :as s01]
+                     [frontend.s01-state :as s01-state]
                      [frontend.config :as config]
                      [logseq.graph-parser.util :as gp-util]
                      [lambdaisland.glogi :as log]
@@ -29,8 +31,12 @@
 #?(:cljs
    (defn after-transact-pipelines
      [repo {:keys [_db-before _db-after _tx-data _tempids tx-meta] :as tx-report}]
+     (when (s01/enabled? repo)
+       (s01-state/observe! repo tx-report)
+       (s01/persist-block-ui! repo tx-report)
+       (s01/persist-metadata! repo tx-report))
      (when-not config/test?
-       (pipelines/invoke-hooks tx-report)
+       (when-not (:s01/index-only? tx-meta) (pipelines/invoke-hooks tx-report))
 
        (when (or (:outliner/transact? tx-meta)
                  (:whiteboard/transact? tx-meta))

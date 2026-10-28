@@ -2,6 +2,8 @@
   (:require [frontend.modules.datascript-report.core :as ds-report]
             [frontend.modules.outliner.file :as file]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
+            [frontend.s01-state :as s01-state]
             [frontend.util :as util]
             [frontend.db.model :as db-model]
             [frontend.db.react :as react]
@@ -11,7 +13,12 @@
 
 (defn updated-page-hook
   [tx-report page]
-  (when-not (get-in tx-report [:tx-meta :created-from-journal-template?])
+  (when-not (or (get-in tx-report [:tx-meta :created-from-journal-template?])
+                (and (s01/enabled?)
+                     (s01/document? (get-in (d/entity (:db-after tx-report) (:db/id page)) [:block/file :file/path]))
+                     (or (s01-state/ui-only-transaction? tx-report)
+                         (= (s01-state/signature (:db-before tx-report) (:db/id page))
+                            (s01-state/signature (:db-after tx-report) (:db/id page))))))
     (file/sync-to-file page (:outliner-op (:tx-meta tx-report)))))
 
 ;; TODO: it'll be great if we can calculate the :block/path-refs before any

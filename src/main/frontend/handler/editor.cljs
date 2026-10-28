@@ -5,6 +5,8 @@
             [dommy.core :as dom]
             [frontend.commands :as commands]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
             [frontend.date :as date]
             [frontend.db :as db]
             [frontend.db.model :as db-model]
@@ -78,7 +80,7 @@
 (defn set-block-own-order-list-type!
   [block type]
   (when-let [uuid (:block/uuid block)]
-    (editor-property/set-block-property! uuid :logseq.order-list-type (name type))))
+    (editor-property/set-app-property! uuid :logseq.order-list-type (name type))))
 
 (defn remove-block-own-order-list-type!
   [block]
@@ -100,8 +102,8 @@
           blocks-uuids    (some->> blocks (map :block/uuid) (remove nil?))
           order-list-prop :logseq.order-list-type]
       (if has-ordered?
-        (editor-property/batch-remove-block-property! blocks-uuids order-list-prop)
-        (editor-property/batch-add-block-property! blocks-uuids order-list-prop "number")))))
+        (editor-property/batch-remove-app-property! blocks-uuids order-list-prop)
+        (editor-property/batch-add-app-property! blocks-uuids order-list-prop "number")))))
 
 (defn get-selection-and-format
   []
@@ -297,7 +299,9 @@
 
 (defn wrap-parse-block
   [{:block/keys [content format left page uuid level pre-block?] :as block}]
-  (let [block (or (and (:db/id block) (db/pull (:db/id block))) block)
+  (let [provided-metadata (:block/app-metadata block)
+        block (or (and (:db/id block) (db/pull (:db/id block))) block)
+        block (cond-> block provided-metadata (assoc :block/app-metadata provided-metadata))
         block (merge block
                      (block/parse-title-and-body uuid format pre-block? (:block/content block)))
         properties (:block/properties block)
@@ -305,12 +309,23 @@
                             (number? (:heading properties)))
                      (dissoc properties :heading)
                      properties)
+        properties (if (and (s01/enabled?) (= :markdown format))
+                     (reduce (fn [props k]
+                               (if (seq (metadata/property-lines (:block/content block) k)) props (dissoc props k)))
+                             properties [:logseq.macro-name :logseq.macro-arguments]) properties)
+        properties (if (and (s01/enabled?) (= :markdown format))
+                     (let [owned (keys (get-in block [:block/app-metadata :properties]))]
+                       (merge (apply dissoc properties owned)
+                              (select-keys (metadata/source-properties block) owned))) properties)
         real-content (:block/content block)
         content (if (and (seq properties) real-content (not= real-content content))
                   (property/with-built-in-properties properties content format)
                   content)
         content (drawer/with-logbook block content)
+        before-clock content
         content (with-timetracking block content)
+        block (if (and (s01/enabled?) (= :markdown format) (not= before-clock content))
+                (metadata/track-logbook block (assoc block :block/content content)) block)
         first-block? (= left page)
         ast (mldoc/->edn (string/trim content) (gp-mldoc/default-config format))
         first-elem-type (first (ffirst ast))
@@ -321,7 +336,7 @@
                                (nil? (:size first-elem-meta)))
         block-with-title? (mldoc/block-with-title? first-elem-type)
         content (string/triml content)
-        content (string/replace content (block-ref/->block-ref uuid) "")
+        content (if (s01/enabled?) content (string/replace content (block-ref/->block-ref uuid) ""))
         [content content'] (cond
                              (and first-block? properties?)
                              [content content]
@@ -340,17 +355,21 @@
         block (if (and first-block? (:block/pre-block? block))
                 block
                 (dissoc block :block/pre-block?))
-        block (update block :block/refs remove-non-existed-refs!)
+        block (if (s01/enabled?)
+                (-> block (update :block/refs #(keep s01/document-ref %))
+                    (update :block/path-refs #(keep s01/document-ref %)))
+                (update block :block/refs remove-non-existed-refs!))
         block (if (and left (not= (:block/left block) left)) (assoc block :block/left left) block)
         new-properties (merge
                         (select-keys properties (property/hidden-properties))
                         (:block/properties block))]
-    (-> block
-        (dissoc :block.temp/top?
-                :block.temp/bottom?)
-        (assoc :block/content content
-               :block/properties new-properties)
-        (merge (if level {:block/level level} {})))))
+    (let [result (-> block
+                     (dissoc :block.temp/top? :block.temp/bottom?)
+                     (assoc :block/content content :block/properties new-properties)
+                     (merge (if level {:block/level level} {})))]
+      (if (and (s01/enabled?) (= :markdown format) (:block/app-metadata result))
+        (metadata/hydrate result (:block/app-metadata result) false)
+        result))))
 
 (defn- save-block-inner!
   [block value opts]
@@ -711,10 +730,16 @@
         new-content (if repeated?
                       (update-timestamps-content! block content)
                       new-content)
+        block (if (and (s01/enabled?) repeated? (= :markdown (:block/format block)))
+                (metadata/track-logbook block (assoc block :block/content new-content)) block)
         input-id (state/get-edit-input-id)]
     (if (and input-id
              (string/ends-with? input-id (str uuid)))
-      (state/set-edit-content! input-id new-content)
+      (do
+        (when (and (s01/enabled?) (:block/app-metadata block))
+          (outliner-tx/transact! {:outliner-op :save-block}
+            (outliner-core/save-block! {:block/uuid uuid :block/app-metadata (:block/app-metadata block)})))
+        (state/set-edit-content! input-id new-content))
       (save-block-if-changed! block new-content))))
 
 (defn uncheck
@@ -890,7 +915,9 @@
   (when-let [block (cond (string? block-or-id) (db/entity [:block/uuid (uuid block-or-id)])
                          (uuid? block-or-id) (db/entity [:block/uuid block-or-id])
                          :else block-or-id)]
-    (let [format (:block/format block)
+    (if (and (s01/enabled?) (= :markdown (:block/format block)))
+      (metadata/set-properties (db/pull [:block/uuid (:block/uuid block)]) [[key value]])
+      (let [format (:block/format block)
           content (:block/content block)
           properties (:block/properties block)
           properties (if (nil? value)
@@ -903,7 +930,7 @@
       {:block/uuid (:block/uuid block)
        :block/properties properties
        :block/properties-order (or (keys properties) [])
-       :block/content content})))
+       :block/content content}))))
 
 (defn set-block-query-properties!
   [block-id all-properties key add?]
@@ -918,7 +945,7 @@
                              (remove #{key} query-properties))
           query-properties (vec query-properties)]
       (if (seq query-properties)
-        (editor-property/set-block-property! block-id :query-properties (str query-properties))
+        (editor-property/set-app-property! block-id :query-properties (str query-properties))
         (editor-property/remove-block-property! block-id :query-properties)))))
 
 (defn set-block-timestamp!
@@ -963,14 +990,14 @@
                        [block-id :id (str block-id)])))
                  block-ids)
         col (remove nil? col)]
-    (editor-property/batch-set-block-property! col)))
+    (when-not (s01/enabled?) (editor-property/batch-set-block-property! col))))
 
 (defn copy-block-ref!
   ([block-id]
    (copy-block-ref! block-id #(str %)))
   ([block-id tap-clipboard]
    (set-blocks-id! [block-id])
-   (util/copy-to-clipboard! (tap-clipboard block-id))))
+   (when-not (s01/enabled?) (util/copy-to-clipboard! (tap-clipboard block-id)))))
 
 (defn select-block!
   [block-uuid]
@@ -1015,7 +1042,7 @@
 
 (defn copy-block-refs
   []
-  (when-let [selected-blocks (seq (get-selected-blocks))]
+  (when-let [selected-blocks (when-not (s01/enabled?) (seq (get-selected-blocks)))]
     (let [blocks (->> (distinct (map #(when-let [id (dom/attr % "blockid")]
                                         (let [level (dom/attr % "level")]
                                           {:id (uuid id)
@@ -1052,7 +1079,7 @@
 
 (defn copy-block-embeds
   []
-  (when-let [blocks (seq (get-selected-blocks))]
+  (when-let [blocks (when-not (s01/enabled?) (seq (get-selected-blocks)))]
     (let [ids (->> (distinct (map #(when-let [id (dom/attr % "blockid")]
                                      (uuid id)) blocks))
                    (remove nil?))
@@ -1944,26 +1971,27 @@
 (defn block-on-chosen-handler
   [id q format selected-text]
   (fn [chosen _click?]
-    (state/clear-editor-action!)
-    (let [uuid-string (str (:block/uuid chosen))]
+    (when-not (s01/enabled?)
+      (state/clear-editor-action!)
+      (let [uuid-string (str (:block/uuid chosen))]
 
-      ;; block reference
-      (insert-command! id
-                       (block-ref/->block-ref uuid-string)
-                       format
-                       {:last-pattern (str block-ref/left-parens (if selected-text "" q))
-                        :end-pattern block-ref/right-parens
-                        :postfix-fn   (fn [s] (util/replace-first block-ref/right-parens s ""))
-                        :forward-pos 3
-                        :command :block-ref})
+        ;; block reference
+        (insert-command! id
+                         (block-ref/->block-ref uuid-string)
+                         format
+                         {:last-pattern (str block-ref/left-parens (if selected-text "" q))
+                          :end-pattern block-ref/right-parens
+                          :postfix-fn   (fn [s] (util/replace-first block-ref/right-parens s ""))
+                          :forward-pos 3
+                          :command :block-ref})
 
-      ;; Save it so it'll be parsed correctly in the future
-      (editor-property/set-block-property! (:block/uuid chosen)
-                                           :id
-                                           uuid-string)
+        ;; Save it so it'll be parsed correctly in the future
+        (editor-property/set-block-property! (:block/uuid chosen)
+                                             :id
+                                             uuid-string)
 
-      (when-let [input (gdom/getElement id)]
-        (.focus input)))))
+        (when-let [input (gdom/getElement id)]
+          (.focus input))))))
 
 (defn block-non-exist-handler
   [input]

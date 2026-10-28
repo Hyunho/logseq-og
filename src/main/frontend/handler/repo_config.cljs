@@ -5,6 +5,8 @@
   depends on a repo."
   (:require [clojure.edn :as edn]
             [frontend.config :as config]
+            [frontend.util :as util]
+            [clojure.string :as string]
             [frontend.db :as db]
             [frontend.fs :as fs]
             [logseq.common.path :as path]
@@ -42,8 +44,13 @@
   (let [repo-dir (config/get-repo-dir repo-url)
         app-dir config/app-name
         dir (path/path-join repo-dir app-dir)]
-    (p/let [_ (fs/mkdir-if-not-exists dir)]
-      (let [default-content config/config-default-content
+    (p/let [_ (fs/mkdir-if-not-exists dir)
+            files (when (util/electron?) (fs/readdir repo-dir :path-only? true))]
+      (let [new-empty? (and (util/electron?)
+                            (not-any? #(re-find #"(?i)\.(md|markdown|org)$" %) files))
+            default-content (if new-empty?
+                              (string/replace-first config/config-default-content "{" "{:s01/enabled? true\n")
+                              config/config-default-content)
             path (str app-dir "/" config/config-file)]
         (p/let [file-exists? (fs/create-if-not-exists repo-url repo-dir "logseq/config.edn" default-content)]
           (when-not file-exists?

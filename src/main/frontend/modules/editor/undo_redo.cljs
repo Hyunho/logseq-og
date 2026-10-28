@@ -6,6 +6,7 @@
             [frontend.modules.datascript-report.core :as db-report]
             [frontend.util.page :as page-util]
             [frontend.state :as state]
+            [frontend.s01 :as s01]
             [clojure.set :as set]
             [medley.core :as medley]
             [frontend.util.drawer :as drawer]
@@ -250,6 +251,7 @@
              (not (or (:undo? tx-meta)
                       (:redo? tx-meta)))
              (not @*pause-listener)
+             (not (and (s01/enabled?) (:from-disk? tx-meta)))
              (not (set/subset?
                    (set (map :a tx-data))
                    #{:block/created-at :block/updated-at})))
@@ -270,3 +272,14 @@
                                              :ui/sidebar-collapsed-blocks
                                              :sidebar/blocks])}]
         (push-undo entity)))))
+
+(defn invalidate-page!
+  "External replacement invalidates whole undo transactions touching this page."
+  [repo page-id]
+  (when-let [stacks (get @undo-redo-states repo)]
+    (doseq [stack [(:undo-stack stacks) (:redo-stack stacks)]]
+      (swap! stack (fn [items]
+                     (filterv (fn [item]
+                                (not-any? #(or (= page-id (:db/id %))
+                                               (= page-id (:db/id (:block/page %))))
+                                          (:blocks item))) items))))))

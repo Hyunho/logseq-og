@@ -984,29 +984,15 @@ independent of format as format specific heading characters are stripped"
           flatten-tree))
 
 (defn get-file-page
-  ([file-path]
-   (get-file-page file-path true))
+  ([file-path] (get-file-page file-path true))
   ([file-path original-name?]
    (when-let [repo (state/get-current-repo)]
-     (when-let [db (conn/get-db repo)]
-       (some->
-        (d/q
-         (if original-name?
-           '[:find ?page-name
-             :in $ ?path
-             :where
-             [?file :file/path ?path]
-             [?page :block/file ?file]
-             [?page :block/original-name ?page-name]]
-           '[:find ?page-name
-             :in $ ?path
-             :where
-             [?file :file/path ?path]
-             [?page :block/file ?file]
-             [?page :block/name ?page-name]])
-         db file-path)
-        db-utils/seq-flatten
-        first)))))
+     (when-let [database (conn/get-db repo)]
+       (when-let [page (d/q '[:find (pull ?page [:block/name :block/original-name :block/s01?]) .
+                             :in $ ?path :where [?file :file/path ?path] [?page :block/file ?file]]
+                            database file-path)]
+         (if (and original-name? (not (:block/s01? page)))
+           (:block/original-name page) (:block/name page)))))))
 
 (defn get-page-file
   ([page-name]

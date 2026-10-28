@@ -1,6 +1,11 @@
 (ns frontend.modules.file.core
   (:require [clojure.string :as string]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
+            [frontend.s01-state :as s01-state]
+            [frontend.util.drawer :as drawer]
+            [frontend.modules.outliner.tree :as tree]
             [frontend.date :as date]
             [frontend.db :as db]
             [frontend.db.model :as model]
@@ -31,13 +36,27 @@
     :else
     content))
 
+(defn without-collapsed-property
+  "Remove legacy collapsed only from the block's property header, never code/body examples."
+  [content]
+  (let [lines (string/split-lines content)
+        property-line? #(boolean (and % (re-find #"^\s*[^\s:]+::(?:\s|$)" %)))
+        [title tail] (if (property-line? (first lines)) [[] lines] [(take 1 lines) (rest lines)])
+        [properties body] (split-with property-line? tail)]
+    (if (and (not (re-find #"^\s*(?:```|~~~)" (or (first lines) "")))
+             (some #(re-find #"(?i)^\s*collapsed::(?:\s|$)" %) properties))
+      (string/join "\n" (concat title (remove #(re-find #"(?i)^\s*collapsed::(?:\s|$)" %) properties) body))
+      content)))
+
 (defn transform-content
   [{:block/keys [collapsed? format pre-block? content left page parent properties] :as b} level {:keys [heading-to-list?]}]
   (let [block-ref-not-saved? (and (seq (:block/_refs (db/entity (:db/id b))))
                                   (not (string/includes? content (str (:block/uuid b)))))
         heading (:heading properties)
         markdown? (= :markdown format)
-        content (or content "")
+        content (if (and markdown? (s01/enabled?)) (metadata/source-content b) content)
+        content (cond-> (or content "")
+                  (and markdown? (s01/enabled?)) without-collapsed-property)
         pre-block? (or pre-block?
                        (and (= page parent left) ; first block
                             markdown?
@@ -77,14 +96,16 @@
                                   (-> (string/replace content #"^\s?#+\s+" "")
                                       (string/replace #"^\s?#+\s?$" ""))
                                   content)
-                        content (content-with-collapsed-state format content collapsed?)
+                        content (if (and markdown? (s01/enabled?))
+                                  content
+                                  (content-with-collapsed-state format content collapsed?))
                         new-content (indented-block-content (string/trim content) spaces-tabs)
                         sep (if (or markdown-top-heading?
                                     (string/blank? new-content))
                               ""
                               " ")]
                     (str prefix sep new-content)))
-        content (if block-ref-not-saved?
+        content (if (and block-ref-not-saved? (not (s01/enabled?)))
                   (property/insert-property format content :id (str (:block/uuid b)))
                   content)]
     content))
@@ -133,7 +154,9 @@
                     whiteboard-page? (config/get-whiteboards-directory)
                     :else            (config/get-pages-directory))
           ext (if (= format "markdown") "md" format)
-          file-rpath (path/path-join sub-dir (str filename "." ext))
+          file-rpath (if (and (s01/enabled?) (s01/document? (:block/original-name page-block)))
+                       (:block/original-name page-block)
+                       (path/path-join sub-dir (str filename "." ext)))
           file {:file/path file-rpath}
           tx [{:file/path file-rpath}
               {:block/name (:block/name page-block)
@@ -161,7 +184,17 @@
                                              :payload {}}])
           (let [files [[file-path new-content]]
                 repo (state/get-current-repo)]
-            (file-handler/alter-files-handler! repo files {} {}))))
+            (file-handler/alter-files-handler!
+             repo files
+             (if (and (s01/enabled? repo) (s01/document? file-path))
+               {:s01-state (s01-state/signature (db/get-db repo) (:db/id page-block))
+                :s01-identity {:pageId (str (:block/uuid page-block))
+                               :blockContents (->> (tree-seq #(seq (:block/children %)) :block/children {:block/children tree})
+                                                   (filter :block/page) (mapv metadata/source-content))
+                               :blockIds (->> (tree-seq #(seq (:block/children %)) :block/children
+                                                       {:block/children tree})
+                                              (filter :block/page) (mapv #(str (:block/uuid %))))}}
+               {}) {}))))
       ;; In e2e tests, "card" page in db has no :file/path
       (js/console.error "File path from page-block is not valid" page-block tree))))
 
@@ -175,3 +208,38 @@
     (if file
       (ok-handler)
       (transact-file-tx-if-not-exists! page-block ok-handler))))
+
+(defn buffer-dirty? [page-id]
+  (let [editing (state/get-edit-block)
+        current (when-let [id (:block/uuid editing)] (db/entity [:block/uuid id]))
+        editing (or current editing)
+        visible (some->> (:block/content editing)
+                         (property/remove-built-in-properties (:block/format editing))
+                         drawer/remove-logbook)]
+    (and (= page-id (get-in editing [:block/page :db/id]))
+         (some? (state/get-edit-content))
+         (not= visible (state/get-edit-content)))))
+
+(defn dirty? [repo page-name]
+  (let [page-id (:db/id (db/entity repo [:block/name page-name]))]
+    (or (buffer-dirty? page-id) (s01-state/dirty? repo (db/get-db repo) page-id))))
+
+(defn editing-snapshot
+  "Serialize current edits, preserving hidden properties when the buffer is unchanged."
+  [repo page-name]
+  (let [editing (state/get-edit-block)
+        changed? (buffer-dirty? (get-in editing [:block/page :db/id]))
+        blocks (model/get-page-blocks-no-cache repo page-name)
+        blocks (map (fn [b] (if (and changed? (= (:block/uuid b) (:block/uuid editing)))
+                             (assoc b :block/content
+                               (property/with-built-in-properties (:block/properties b)
+                                 (state/get-edit-content) (:block/format b))) b)) blocks)]
+    (tree->file-content (tree/blocks->vec-tree repo blocks page-name) {:init-level init-level})))
+
+(defn page-identity [repo page-name]
+  (let [page (db/entity repo [:block/name page-name])
+        blocks (model/get-page-blocks-no-cache repo page-name)
+        tree (tree/blocks->vec-tree repo blocks page-name)]
+    {:pageId (str (:block/uuid page))
+     :blockIds (->> (tree-seq #(seq (:block/children %)) :block/children {:block/children tree})
+                    (filter :block/page) (mapv #(str (:block/uuid %))))}))

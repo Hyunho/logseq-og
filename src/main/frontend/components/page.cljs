@@ -11,6 +11,7 @@
             [frontend.components.scheduled-deadlines :as scheduled]
             [frontend.components.svg :as svg]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
             [frontend.context.i18n :refer [t]]
             [frontend.date :as date]
             [frontend.db :as db]
@@ -259,7 +260,7 @@
                                           (str "Do you really want to change the page name to “" new-page-name "”?"))
                          :on-confirm    (fn [_e {:keys [close-fn]}]
                                           (close-fn)
-                                          (page-handler/rename! (or title page-name) @*title-value)
+                                          (page-handler/rename! (if (s01/enabled?) page-name (or title page-name)) @*title-value)
                                           (reset! *edit? false))
                          :on-cancel     rollback-fn})))
         blur-fn (fn [e]
@@ -274,6 +275,10 @@
                     (do (when-not untitled? (notification/show! (t :page/illegal-page-name) :warning))
                         (rollback-fn))
 
+                    (and (s01/enabled?) (not whiteboard-page?))
+                    (do (page-handler/rename! page-name @*title-value)
+                        (reset! *edit? false))
+
                     (and (collide?) (or whiteboard-page? (model/whiteboard-page? @*title-value)))
                     (do (notification/show! (t :page/page-already-exists @*title-value) :error)
                         (rollback-fn))
@@ -283,7 +288,7 @@
                         (rollback-fn))
 
                     untitled?
-                    (page-handler/rename! (or title page-name) @*title-value)
+                    (page-handler/rename! (if (s01/enabled?) page-name (or title page-name)) @*title-value)
 
                     :else
                     (state/set-modal! (confirm-fn)))
@@ -443,7 +448,7 @@
           {:keys [icon]} (:block/properties page)
           page-name (:block/name page)
           page-original-name (:block/original-name page)
-          title (or page-original-name page-name)
+          title (or (when (s01/enabled?) (get-in page [:block/properties :title])) page-original-name page-name)
           icon (or icon "")
           today? (and
                   journal?

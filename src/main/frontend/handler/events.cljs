@@ -3,7 +3,8 @@
   core.async channel to handle them. Any part of the system can dispatch
   one of these events using state/pub-event!"
   (:refer-clojure :exclude [run!])
-  (:require ["@capacitor/filesystem" :refer [Directory Filesystem]]
+  (:require [datascript.core :as d]
+            ["@capacitor/filesystem" :refer [Directory Filesystem]]
             ["@sentry/react" :as Sentry]
             [electron.ipc :as ipc]
             [frontend.idb :as idb]
@@ -25,9 +26,14 @@
             [frontend.components.whiteboard :as whiteboard]
             [frontend.components.user.login :as login]
             [frontend.config :as config]
+            [frontend.s01 :as s01]
+            [frontend.s01-metadata :as metadata]
+            [frontend.modules.editor.undo-redo :as undo-redo]
+            [frontend.modules.file.core :as file-core]
             [frontend.context.i18n :refer [t]]
             [frontend.db :as db]
             [frontend.db.conn :as conn]
+            [frontend.db.react :as db-react]
             [frontend.db.model :as db-model]
             [frontend.db.persist :as db-persist]
             [frontend.extensions.srs :as srs]
@@ -129,6 +135,7 @@
       (login/open-login-modal!))))
 
 (defmethod handle :graph/added [[_ repo {:keys [empty-graph?]}]]
+  (state/pub-event! [:s01/ready repo])
   (db/set-key-value repo :ast/version db-schema/ast-version)
   (search-handler/rebuild-indices!)
   (db/persist! repo)
@@ -362,14 +369,245 @@
   (state/set-modal! git-component/set-git-username-and-email))
 
 (defmethod handle :page/title-property-changed [[_ old-title new-title]]
-  (page-handler/rename! old-title new-title))
+  (when-not (s01/enabled?) (page-handler/rename! old-title new-title)))
 
 (defmethod handle :page/create [[_ page-name opts]]
-  (page-handler/create! page-name opts))
+  (if (and (s01/enabled?) (not (:journal? opts)))
+    (state/pub-event! [:s01/open-document page-name])
+    (page-handler/create! page-name opts)))
 
 (defmethod handle :page/create-today-journal [[_ _repo]]
   (p/let [_ (page-handler/create-today-journal!)]
     (ui-handler/re-render-root!)))
+
+(defmethod handle :s01/link-plan [[_ repo id]]
+  (let [plan (s01/call! repo "plan" {:id id})
+        plan (update plan :updates #(remove (fn [u] (contains? (set (:applied plan)) (:path u))) %))
+        selected (atom (set (map :path (:updates plan))))]
+    (state/set-modal!
+     (fn [] [:div.p-4 [:h2 "문서 링크·임베드 수정안"]
+             [:p "파일별 변경 내용을 확인하고 반영할 문서를 선택해 주세요."]
+             (for [update (:updates plan)]
+               [:div.my-4 {:key (:path update)}
+                [:label [:input {:type "checkbox" :default-checked true
+                                 :on-change #(swap! selected (if (.. % -target -checked) conj disj) (:path update))}]
+                 (:path update)]
+                [:pre.whitespace-pre-wrap (:before update)]
+                [:p "→"] [:pre.whitespace-pre-wrap (:after update)]])
+             (ui/button "선택한 문서 수정" :on-click
+               (fn []
+                 (try
+                   (let [safe (filterv
+                               (fn [path]
+                                 (let [page (db/get-file-page path)]
+                                   (or (nil? page)
+                                       (not (file-core/dirty? repo page)))))
+                               @selected)
+                         results (s01/call! repo "apply-plan" {:id id :selected safe})]
+                     (state/close-modal!)
+                     (doseq [result results]
+                       (when (= "conflict" (:status result))
+                         (state/pub-event! [:s01/conflict repo (:id (:conflict result))])))
+                     (when (or (not= (count safe) (count @selected))
+                               (some #(= "changed" (:status %)) results))
+                       (notification/show! "편집 중이거나 변경된 문서는 수정하지 않았습니다. 다시 확인해 주세요." :warning)))
+                   (catch :default e (notification/show! (str e) :error)))))])
+     {:label "s01-link-plan"})))
+
+(defmethod handle :s01/move-document [[_ relative]]
+  (let [repo (state/get-current-repo)
+        destination (atom relative)]
+    (state/set-modal!
+     (fn [] [:div.p-4 [:h2 "파일 이름·위치 변경"]
+             [:input.w-full {:default-value relative :on-change #(reset! destination (util/evalue %))}]
+             (ui/button "이동하고 링크 수정안 확인" :on-click
+               (fn []
+                 (try
+                   (let [page (db/get-file-page relative)
+                         expected (db/get-file repo relative)]
+                     (when (file-core/dirty? repo page)
+                       (throw (js/Error. "미저장 편집을 먼저 저장하거나 충돌을 해결해 주세요.")))
+                     (let [result (s01/call! repo "move" {:relative relative :destination @destination :expected expected})]
+                       (state/close-modal!)
+                       (when-let [plan (:plan result)]
+                         (state/pub-event! [:s01/link-plan repo (:id plan)]))))
+                   (catch :default e (notification/show! (str e) :error)))))])
+     {:label "s01-move-document"})))
+
+(defmethod handle :s01/open-document [[_ target]]
+  (let [repo (state/get-current-repo)
+        resolution (s01/lookup-document target)]
+    (case (:status resolution)
+      :found (route-handler/redirect-to-page! (:page-name resolution))
+      :ambiguous
+      (state/set-modal!
+       (fn [] [:div.p-4 [:h2 "동명 문서: 경로를 사용해 구분해 주세요."]
+               (for [path (:paths resolution)]
+                 [:div {:key path} (ui/button path :on-click
+                   #(do (state/close-modal!)
+                        (route-handler/redirect-to-page! (db/get-file-page path))))])])
+       {:label "s01-document-candidates"})
+      :missing
+      (let [relative (atom (str (when-not (string/includes? target "/") "pages/") target
+                                (when-not (re-find #"(?i)\.(md|markdown)$" target) ".md")))]
+        (state/set-modal!
+         (fn [] [:div.p-4 [:h2 "문서 생성 위치"]
+                 [:input.w-full {:default-value @relative :on-change #(reset! relative (util/evalue %))}]
+                 (ui/button "생성" :on-click
+                   (fn []
+                     (try
+                       (let [result (s01/call! repo "save" {:relative @relative :expected nil :content "- "})]
+                         (if (= "saved" (:status result))
+                           (do (file-handler/alter-file repo @relative "- " {:from-disk? true :re-render-root? true})
+                               (state/close-modal!)
+                               (route-handler/redirect-to-page! (db/get-file-page @relative)))
+                           (notification/show! "이미 존재하거나 충돌 중인 파일입니다. 다른 위치를 선택해 주세요." :warning)))
+                       (catch :default e (notification/show! (str e) :error)))))] )
+         {:label "s01-create-document"})))))
+
+(defmethod handle :s01/reconcile-index [[_ repo]]
+  (when (and (= repo (state/get-current-repo)) (s01/enabled? repo))
+    (let [tx (mapcat
+               (fn [[file _]]
+                 (when (s01/document? file)
+                   (mapcat (fn [block]
+                             (let [parsed (editor-handler/wrap-parse-block block)
+                                   refs (mapv #(dissoc % :block/uuid :db/id) (:block/refs parsed))]
+                               [[:db/retract (:db/id block) :block/refs]
+                                {:db/id (:db/id block) :block/refs refs}]))
+                     (db/get-page-blocks-no-cache repo (db/get-file-page file)))))
+               (db/get-files repo))]
+      (when (seq tx)
+        (db/transact! repo tx {:s01/index-only? true})
+        (let [database (db/get-db repo)
+              paths-tx (mapcat
+                         (fn [[file _]]
+                           (when (s01/document? file)
+                             (mapcat (fn [block]
+                                       (let [refs (loop [id (:db/id block) seen #{} refs #{(get-in block [:block/page :db/id])}]
+                                                    (if (or (nil? id) (seen id))
+                                                      (disj refs nil)
+                                                      (let [entity (d/entity database id)]
+                                                        (recur (get-in entity [:block/parent :db/id]) (conj seen id)
+                                                               (into refs (map :db/id (:block/refs entity)))))))]
+                                         [[:db/retract (:db/id block) :block/path-refs]
+                                          {:db/id (:db/id block) :block/path-refs refs}]))
+                               (db/get-page-blocks-no-cache repo (db/get-file-page file)))))
+                         (db/get-files repo))]
+          (when (seq paths-tx) (db/transact! repo paths-tx {:s01/index-only? true})))))))
+
+(defmethod handle :s01/reconcile-cache [[_ repo paths]]
+  (when (and (= repo (state/get-current-repo)) (s01/enabled? repo))
+    (let [pending (set (map :path (s01/call! repo "conflicts" {})))]
+      (doseq [[file _] (db/get-files repo)
+              :let [page (db/get-file-page file)]
+              :when (and (s01/document? file) (or (nil? paths) ((set paths) file))
+                         (not (pending file)) (not (file-core/dirty? repo page)))]
+        (let [content (:content (s01/call! repo "read" {:relative file}))]
+          (when (some? content)
+            (undo-redo/invalidate-page! repo (db/get-file-page-id file))
+            (when (= (db/get-file-page-id file) (get-in (state/get-edit-block) [:block/page :db/id]))
+              (state/clear-edit!))
+            (file-handler/alter-file repo file content {:from-disk? true :re-render-root? true})))))))
+
+(defonce s01-health-timer (atom nil))
+(defonce s01-cache-generations (atom {}))
+(defn- start-s01-health! [repo]
+  (let [health (s01/call! repo "health" {})
+        previous (get @s01-cache-generations repo)]
+    (when (or (:reset health) (and previous (not= previous (:generation health))))
+      (state/pub-event! [:s01/reconcile-cache repo]))
+    (swap! s01-cache-generations assoc repo (:generation health)))
+  (when @s01-health-timer (js/clearInterval @s01-health-timer))
+  (reset! s01-health-timer
+    (js/setInterval
+      (fn []
+        (when (and (= repo (state/get-current-repo)) (s01/enabled? repo)
+                   (not (state/editor-in-composition?)) (not (state/loading-files? repo)))
+          (try
+            (let [health (s01/call! repo "health" {})]
+              (when (or (:reset health) (not= (:generation health) (get @s01-cache-generations repo)))
+                (swap! s01-cache-generations assoc repo (:generation health))
+                (state/pub-event! [:s01/reconcile-cache repo]))
+              (when (:recovery health) (state/pub-event! [:s01/show-conflicts repo])))
+            (catch :default e
+              (js/clearInterval @s01-health-timer)
+              (notification/show! (str "ID 캐시 점검 실패: " e) :error))))) 5000)))
+
+(defmethod handle :s01/prune-journals [[_ repo]]
+  (let [records (s01/call! repo "journals" {})]
+    (state/set-modal!
+      (fn [] [:div.p-4 [:h2 "일반 저장 저널 정리"]
+              [:p (str (count records) "개 · " (reduce + 0 (map :bytes records)) " bytes")]
+              [:p "정상 저장의 이전 버전만 삭제합니다. 미해결·해결된 충돌 복구본은 유지합니다."]
+              (for [record records] [:div {:key (:id record)} (:path record) " · " (:createdAt record)])
+              (ui/button "표시된 일반 저장 저널 삭제" :on-click
+                #(try (s01/call! repo "prune-journals" {:ids (mapv :id records)})
+                      (state/close-modal!)
+                      (catch :default e (notification/show! (str e) :error))))])
+      {:label "s01-prune"})))
+
+(defmethod handle :s01/show-link-plans [[_ repo]]
+  (let [plans (s01/call! repo "plans" {})]
+    (state/set-modal!
+      (fn [] [:div.p-4 [:h2 "보관된 링크 수정안"]
+              (for [plan plans]
+                [:div {:key (:id plan)}
+                 (ui/button (str (count (:updates plan)) "개 문서 · " (:id plan))
+                   :on-click #(state/pub-event! [:s01/link-plan repo (:id plan)]))])])
+      {:label "s01-plans"})))
+
+(defmethod handle :s01/show-conflicts [[_ repo]]
+  (let [records (s01/call! repo "conflicts" {})]
+    (state/set-modal!
+     (fn [] [:div.p-4 [:h2 "저장 충돌 목록"]
+             (if (empty? records) [:p "해결할 충돌이 없습니다."]
+               (for [record records]
+                 [:div.my-2 {:key (:id record)}
+                  (ui/button (str (:path record) " · " (:createdAt record))
+                    :on-click #(state/pub-event! [:s01/conflict repo (:id record)]))]))])
+     {:label "s01-conflicts"})))
+
+(defmethod handle :s01/conflict [[_ repo id]]
+  (let [record (s01/call! repo "details" {:id id})
+        choose! (fn [choice]
+                  (try
+                    (let [result (s01/call! repo "resolve" {:id id :choice choice :observedHash (:currentHash record) :displacedHash (:displacedHash record)})]
+                      (if (= "conflict" (:status result))
+                        (state/pub-event! [:s01/conflict repo (:id (:conflict result))])
+                        (let [path (:path result)
+                              page-name (db/get-file-page path)]
+                          (undo-redo/invalidate-page! repo (db/get-file-page-id path))
+                          (state/clear-edit!)
+                          (state/clear-selection!)
+                          (if (nil? (:content result))
+                            (when page-name (page-handler/delete! page-name #() :delete-file? false))
+                            (file-handler/alter-file repo path (:content result)
+                              {:from-disk? true :re-render-root? true :fs/event :fs/local-file-change}))
+                          (state/close-modal!))))
+                    (catch :default e (notification/show! (str e) :error))))]
+    (when (= "pending" (:state record))
+      (state/set-modal!
+     (fn []
+       [:div.p-4
+        [:h2 "문서 충돌: " (:path record)]
+        [:p "두 버전은 logseq/conflicts/에 보존됩니다. 사용할 버전을 선택해 주세요."]
+        (when (and (:interrupted record) (some? (:displaced record)))
+          [:div [:h3 "교체 직전 외부 버전"]
+           [:textarea.w-full {:read-only true :value (:displaced record) :rows 6}]
+           (ui/button "교체 직전 외부 버전 복원" :on-click #(choose! "displaced"))])
+        (when (and (:interrupted record) (some? (:disk record)))
+          [:div [:h3 "중단 전 디스크 원본"]
+           [:textarea.w-full {:read-only true :value (:disk record) :rows 6}]
+           (ui/button "중단 전 디스크 원본 복원" :on-click #(choose! "previous"))])
+        [:div.flex.gap-4
+         [:div.flex-1 [:h3 "앱 편집본"]
+          [:textarea.w-full {:read-only true :value (:app record) :rows 14}]
+          (ui/button (if (:deleted record) "편집본으로 문서 복원" "앱 편집본 사용") :on-click #(choose! "app"))]
+         [:div.flex-1 [:h3 (if (:deleted record) "외부에서 삭제됨" "외부 변경본")]
+          [:textarea.w-full {:read-only true :value (or (if (:interrupted record) (:currentDisk record) (:disk record)) "") :rows 14}]
+          (ui/button (if (:deleted record) "삭제 유지" "외부 변경본 사용") :on-click #(choose! "disk"))]]])
+     {:label "s01-conflict"}))))
 
 (defmethod handle :file/not-matched-from-disk [[_ path disk-content db-content]]
   (state/clear-edit!)
@@ -382,11 +620,50 @@
 (defmethod handle :modal/display-file-version-selector  [[_ versions path  get-content]]
   (state/set-modal! #(git-component/file-version-selector versions path get-content)))
 
+(defmethod handle :s01/ready [[_ repo]]
+  (when (s01/enabled? repo)
+    (start-s01-health! repo)
+    ;; Rebuild effective feature data from authored content and durable overlays.
+    (let [stored (s01/metadata-map repo)
+          tx (keep (fn [[id m]]
+                     (when-let [b (db/pull repo [:block/uuid (uuid id)])]
+                       (when (= :markdown (:block/format b))
+                         (-> (assoc b :block/content (metadata/source-content b)
+                                      :block/properties (metadata/source-properties b))
+                             (metadata/hydrate m)
+                             (select-keys [:db/id :block/content :block/properties
+                                           :block/properties-text-values :block/app-metadata]))))) stored)]
+      (when (seq tx) (db-react/refresh! repo (db/transact! repo tx {:s01/index-only? true}))))
+    ;; SQLite UI state outranks an older persisted renderer snapshot.
+    (let [tx (keep (fn [{:keys [id collapsed]}]
+                     (when-let [block (db/entity repo [:block/uuid (uuid id)])]
+                       (when (and (s01/document? (get-in block [:block/page :block/file :file/path]))
+                                  (not= collapsed (boolean (:block/collapsed? block))))
+                         {:db/id (:db/id block) :block/collapsed? collapsed})))
+                   (s01/call! repo "block-ui" {}))]
+      (when (seq tx)
+        (db-react/refresh! repo (db/transact! repo tx {:s01/index-only? true}))))
+    (let [identities (into {} (map (juxt :path #(dissoc % :path)) (s01/call! repo "identities" {})))
+          changed (keep (fn [[file _]]
+                          (when (and (s01/document? file)
+                                     (or (not= (s01/document-key file) (db/get-file-page file false))
+                                         (not= (get identities file)
+                                               (file-core/page-identity repo (db/get-file-page file))))) file))
+                        (db/get-files repo))]
+      (when (seq changed) (state/pub-event! [:s01/reconcile-cache repo (vec changed)])))
+    (let [scan (s01/call! repo "scan" {})]
+      (when (:notice scan) (state/pub-event! [:s01/reconcile-cache repo]))
+      (when-let [plan (:plan scan)]
+      (state/pub-event! [:s01/link-plan repo (:id plan)])))
+    (when (seq (s01/call! repo "conflicts" {}))
+      (state/pub-event! [:s01/show-conflicts repo]))))
+
 ;; Hook on a graph is ready to be shown to the user.
 ;; It's different from :graph/restored, as :graph/restored is for window reloaded
 ;; FIXME: config may not be loaded when the graph is ready.
 (defmethod handle :graph/ready
   [[_ repo]]
+  (state/pub-event! [:s01/ready repo])
   (when (config/local-db? repo)
     (p/let [dir               (config/get-repo-dir repo)
             dir-exists?       (fs/dir-exists? dir)]

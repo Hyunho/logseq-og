@@ -21,7 +21,7 @@
   "Ignore path for ls-dir-files-with-handler! and reload-dir!"
   [dir path]
   (let [ignores ["." ".recycle" "node_modules" "logseq/bak"
-                 "logseq/version-files" "logseq/graphs-txid.edn"]]
+                 "logseq/version-files" "logseq/conflicts" "logseq/identity.sqlite" "logseq/metadata.sqlite" "logseq/graphs-txid.edn"]]
     (when (string? path)
       (or
        (some #(string/starts-with? path

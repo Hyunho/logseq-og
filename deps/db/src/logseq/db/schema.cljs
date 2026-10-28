@@ -54,6 +54,7 @@
    :block/priority {}
 
    ;; map, key -> set of refs in property value or full text if none are found
+   :block/app-metadata {}
    :block/properties {}
    ;; vector
    :block/properties-order {}
