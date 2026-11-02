@@ -1,0 +1,11 @@
+{
+  "Profiles": [
+    {
+      "Name": "Journal",
+      "Guid": "c203048e-570c-4fb6-90c4-10e4f514786b",
+      "Dynamic Profile Parent Name": "Default",
+      "Custom Command": "Yes",
+      "Command": "/bin/zsh -lic '/Users/hyunho/.local/bin/journal'"
+    }
+  ]
+}
